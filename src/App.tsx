@@ -32,6 +32,10 @@ export default function App() {
   const [liveCode, setLiveCode] = useState("");
   const [ocrStatus, setOcrStatus] = useState("Apropie codul de bare...");
 
+  // --- STARI NOI: CAUTARE MANUALA ---
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+
   // Folosim <number | string> pentru a permite câmpurilor să fie goale ("")
   const [tempCantitate, setTempCantitate] = useState<number | string>(1);
   const [tempExpirare, setTempExpirare] = useState("");
@@ -53,13 +57,13 @@ export default function App() {
   const lastScannedCode = useRef("");
 
   useEffect(() => {
-    if (activeTab === 'scan' && !scanResult) {
+    if (activeTab === 'scan' && !scanResult && searchResults.length === 0) {
       startScanner();
     } else {
       Quagga.stop();
     }
     return () => { Quagga.stop(); };
-  }, [activeTab, scanResult]);
+  }, [activeTab, scanResult, searchResults]);
 
   const startScanner = () => {
     if (!videoRef.current) return;
@@ -83,6 +87,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsProcessing(true); setOcrStatus("Analizez poza... ⏳"); Quagga.stop();
+    setSearchResults([]); setSearchQuery("");
     try {
       const { data: { text } } = await Tesseract.recognize(file, 'eng', { // @ts-ignore
         tessedit_char_whitelist: '0123456789' 
@@ -96,6 +101,7 @@ export default function App() {
   async function fetchProduct(barcode: string) {
     if (isProcessing && activeTab !== 'scan') return; 
     setIsProcessing(true); setOcrStatus("📦 Căutare produs...");
+    setSearchResults([]); setSearchQuery("");
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
       const data = await res.json();
@@ -128,6 +134,83 @@ export default function App() {
     } catch (e) { setOcrStatus("⚠️ Eroare rețea"); setIsProcessing(false); }
   }
 
+  // --- LOGICĂ CĂUTARE MANUALĂ (TEXT SAU COD) ---
+  const searchProductManual = async (query: string) => {
+    if (!query.trim()) return;
+    setIsProcessing(true);
+    setOcrStatus("🔍 Căutare...");
+    setSearchResults([]); 
+    setScanResult(null);
+
+    try {
+      const isBarcode = /^\d+$/.test(query.trim()); // Daca a introdus doar cifre
+
+      if (isBarcode) {
+        await fetchProduct(query.trim());
+      } else {
+        // Căutare text (ex: "ceapa")
+        const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query.trim())}&search_simple=1&action=process&json=1&page_size=6`);
+        const data = await res.json();
+
+        if (data.products && data.products.length > 0) {
+           const results = data.products
+             .filter((p: any) => p.product_name) // Trebuie să aibă nume
+             .map((p: any) => {
+               const sursa = [p.product_name, p.ingredients_text, p.brands].join(' ').toLowerCase();
+               const alergeniGasitiGlobal = ALERGENI_COMUNI.filter(a => sursa.includes(a.toLowerCase().replace('ă', 'a').replace('ș', 's').replace('ț', 't')));
+               let parsedGramaj = 100;
+               if (p.quantity) {
+                 const match = p.quantity.match(/(\d+)/);
+                 if (match) parsedGramaj = parseInt(match[1], 10);
+               }
+               return {
+                 id: p.code || Date.now().toString() + Math.random(),
+                 nume: p.product_name,
+                 brand: p.brands || "Brand Mixt",
+                 kcal: p.nutriments?.['energy-kcal_100g'] || 0,
+                 carbs: p.nutriments?.carbohydrates_100g || 0,
+                 zaharuri: p.nutriments?.sugars_100g || 0,
+                 proteine: p.nutriments?.proteins_100g || 0,
+                 grasimi: p.nutriments?.fat_100g || 0,
+                 sare: p.nutriments?.salt_100g || 0,
+                 sursaText: sursa,
+                 alergeniDetectati: alergeniGasitiGlobal,
+                 imagine: p.image_front_small_url || "https://via.placeholder.com/150",
+                 cantitate: 1, expirare: "", gramajTotal: parsedGramaj, procentRamas: 100
+               };
+           });
+
+           if (results.length === 1) {
+              selectSearchResult(results[0]);
+           } else if (results.length > 1) {
+              setSearchResults(results);
+              setOcrStatus("✅ Alege un produs din listă:");
+              Quagga.stop(); // Oprim camera cat timp alege
+           } else {
+              setOcrStatus("❌ Produs negăsit.");
+           }
+        } else {
+          setOcrStatus("❌ Niciun produs găsit.");
+        }
+      }
+    } catch (e) {
+      setOcrStatus("⚠️ Eroare rețea");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const selectSearchResult = (item: Product) => {
+    const isEgg = item.sursaText.includes('oua') || item.sursaText.includes('ouă') || item.sursaText.includes('egg');
+    setTempCantitate(isEgg ? 30 : 1);
+    setTempExpirare("");
+    setTempGramaj(item.gramajTotal);
+    setScanResult(item);
+    setSearchResults([]);
+    setSearchQuery("");
+    setOcrStatus("✅ PRODUS SELECTAT!");
+  };
+
   const adaugaInFrigider = () => {
     if (!scanResult) return;
     const finalCantitate = Number(tempCantitate) || 1;
@@ -138,7 +221,7 @@ export default function App() {
       if (existingItem) return prev.map(p => p.id === scanResult.id ? { ...p, cantitate: p.cantitate + finalCantitate, expirare: tempExpirare || p.expirare, gramajTotal: finalGramaj } : p);
       return [...prev, { ...scanResult, cantitate: finalCantitate, expirare: tempExpirare, gramajTotal: finalGramaj, procentRamas: 100 }];
     });
-    setScanResult(null); setIsProcessing(false); setLiveCode(""); setActiveTab('fridge');
+    setScanResult(null); setIsProcessing(false); setLiveCode(""); setSearchQuery(""); setSearchResults([]); setActiveTab('fridge');
   };
 
   const toggleExpand = (id: string) => setExpandedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -147,7 +230,6 @@ export default function App() {
   
   const consumaProdus = (item: Product) => {
     const valPortie = portiiDiet[item.id];
-    // Daca e gol, punem 100g, altfel valoarea introdusa
     const grameConsumate = (valPortie !== undefined && valPortie !== '') ? Number(valPortie) : 100;
     
     const caloriiDeAdaugat = (item.kcal / 100) * grameConsumate;
@@ -190,7 +272,6 @@ export default function App() {
     return `Recomandare rapidă: Mănâncă ~${grameNecesare}g de ${produs.nume} pentru a obține 15g de carbohidrați necesari recuperării.`;
   };
 
-  // Variabila pentru a calcula cercul si sa evitam impartirea la 0
   const safeDietMax = Number(dietKcalMax) || 1;
 
   return (
@@ -284,32 +365,79 @@ export default function App() {
         {/* ======================= TAB: SCAN ======================= */}
         {activeTab === 'scan' && !scanResult && (
           <div style={{ textAlign: 'center' }}>
-            <div ref={videoRef} className="video-container">
-              <div className="laser-line"></div>
-            </div>
+            {/* Ascundem camera daca userul cauta si are rezultate */}
+            {searchResults.length === 0 && (
+              <div ref={videoRef} className="video-container">
+                <div className="laser-line"></div>
+              </div>
+            )}
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-              <label className="action-button">
-                <Camera size={18} /> FĂ POZĂ
-                <input type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
-              </label>
-              <label className="action-button">
-                <ImageIcon size={18} /> GALERIE
-                <input type="file" accept="image/*" onChange={handleFileUpload} style={{ display: 'none' }} />
-              </label>
-            </div>
+            {searchResults.length === 0 && (
+              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                <label className="action-button">
+                  <Camera size={18} /> FĂ POZĂ
+                  <input type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
+                </label>
+                <label className="action-button">
+                  <ImageIcon size={18} /> GALERIE
+                  <input type="file" accept="image/*" onChange={handleFileUpload} style={{ display: 'none' }} />
+                </label>
+              </div>
+            )}
 
+            {/* CUTIE CĂUTARE ȘI STATUS */}
             <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '15px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+              
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                <input
+                  type="text"
+                  placeholder="Caută text (ex: mere) sau cod..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && searchProductManual(searchQuery)}
+                  className="compact-input"
+                  style={{ background: '#f8f9fa' }}
+                />
+                <button onClick={() => searchProductManual(searchQuery)} className="action-button" style={{ flex: 'none', width: '50px', padding: '0', background: '#1b5e20', color: 'white' }}>
+                  <Search size={20} />
+                </button>
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#1b5e20' }}>
                 <Zap size={20} className={isProcessing ? "animate-pulse" : ""} />
                 <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{ocrStatus}</span>
               </div>
-              <h1 style={{ letterSpacing: '4px', color: '#333', margin: '10px 0', fontSize: '1.5rem' }}>{liveCode || "••••••••"}</h1>
+              
+              {liveCode && searchResults.length === 0 && (
+                <h1 style={{ letterSpacing: '4px', color: '#333', margin: '10px 0 0 0', fontSize: '1.5rem' }}>{liveCode}</h1>
+              )}
             </div>
+
+            {/* LISTA REZULTATE CAUTARE TEXT (BURGER LIST) */}
+            {searchResults.length > 0 && (
+              <div className="search-results-list" style={{ marginTop: '15px', background: 'white', borderRadius: '15px', padding: '5px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '2px solid #f0f0f0' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#333' }}>Rezultate căutare:</span>
+                  <button onClick={() => { setSearchResults([]); startScanner(); }} style={{ background: 'none', border: 'none', color: '#d32f2f', fontWeight: 'bold', cursor: 'pointer' }}>Închide</button>
+                </div>
+                {searchResults.map((item, index) => (
+                  <div key={index} onClick={() => selectSearchResult(item)} className="search-result-item" style={{ display: 'flex', alignItems: 'center', padding: '12px 10px', borderBottom: index < searchResults.length - 1 ? '1px solid #eee' : 'none', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '10px' }}>
+                    <img src={item.imagine} style={{ width: '45px', height: '45px', borderRadius: '8px', objectFit: 'cover', marginRight: '15px', border: '1px solid #ddd' }} />
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <strong style={{ fontSize: '14px', color: '#333', display: 'block', lineHeight: '1.2' }}>{item.nume}</strong>
+                      {item.brand && <span style={{ fontSize: '11px', color: '#888' }}>{item.brand}</span>}
+                    </div>
+                    <div style={{ background: '#f1f8e9', color: '#1b5e20', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' }}>
+                      Alege
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* --- REZULTAT SCANARE --- */}
+        {/* --- REZULTAT SCANARE SAU SELECTIE MANUALĂ --- */}
         {scanResult && (
           <div className="scan-result-card">
             <img src={scanResult.imagine} style={{ width: '70px', height: '70px', display: 'block', margin: '0 auto 10px', borderRadius: '12px', objectFit: 'contain' }} />
@@ -544,6 +672,9 @@ export default function App() {
         video { width: 100%; height: 100%; object-fit: cover; }
 
         .card { background: white; padding: 15px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); transition: transform 0.2s; }
+        
+        /* HOVER PENTRU REZULTATE CAUTARE */
+        .search-result-item:hover { background: #f8f9fa !important; }
 
         .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 800px; height: 70px; background: white; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #eee; z-index: 100; border-radius: 20px 20px 0 0; box-shadow: 0 -2px 15px rgba(0,0,0,0.05); }
         .nav-btn { border: none; background: none; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
