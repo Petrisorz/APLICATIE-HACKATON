@@ -539,7 +539,7 @@ export default function App() {
         </button>
       </nav>
 
-      <style>{`
+     <style>{`
         /* RESPONSIVE LAYOUT */
         body { margin: 0; background: #e0e5ec; }
         .app-container {
@@ -570,16 +570,19 @@ export default function App() {
           gap: 15px;
         }
 
-        /* VIDEO CAMERA ADAPTIVĂ */
+        /* VIDEO CAMERA ADAPTIVĂ - FĂCUTĂ COMPACTĂ PENTRU TELEFON */
         .video-container {
           position: relative;
-          border-radius: 30px;
+          border-radius: 20px;
           overflow: hidden;
-          border: 5px solid #1b5e20;
+          border: 4px solid #1b5e20;
           width: 100%;
-          aspect-ratio: 4/3;
-          max-height: 60vh;
+          max-width: 350px; /* Limitează lățimea ca să nu fie un gigant */
+          margin: 0 auto; /* Îl centrează pe ecran */
+          aspect-ratio: 16/10; /* Face ecranul mai mult dreptunghiular decât pătrat */
+          max-height: 220px; /* Taie din înălțime ca să încapă perfect fără scroll */
           background: #000;
+          box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
         video { width: 100%; height: 100%; object-fit: cover; }
 
@@ -626,7 +629,7 @@ export default function App() {
         /* BUTOANE SI INPUTURI */
         .action-button {
           flex: 1; background: #fff; color: #1b5e20; border: 2px solid #1b5e20; 
-          padding: 15px; border-radius: 15px; font-weight: bold; cursor: pointer; 
+          padding: 12px; border-radius: 12px; font-weight: bold; cursor: pointer; 
           display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s;
         }
         .action-button:hover { background: #f1f8e9; }
