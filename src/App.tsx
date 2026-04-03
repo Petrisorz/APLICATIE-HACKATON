@@ -32,11 +32,9 @@ export default function App() {
   const [liveCode, setLiveCode] = useState("");
   const [ocrStatus, setOcrStatus] = useState("Apropie codul de bare...");
 
-  // --- STARI NOI: CAUTARE MANUALA ---
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Product[]>([]);
 
-  // Folosim <number | string> pentru a permite câmpurilor să fie goale ("")
   const [tempCantitate, setTempCantitate] = useState<number | string>(1);
   const [tempExpirare, setTempExpirare] = useState("");
   const [tempGramaj, setTempGramaj] = useState<number | string>(100);
@@ -98,6 +96,7 @@ export default function App() {
     } catch (err) { setOcrStatus("Eroare la procesarea pozei."); setIsProcessing(false); startScanner(); }
   };
 
+  // FETCH SIMPLU PENTRU COD DE BARE (Ambalate)
   async function fetchProduct(barcode: string) {
     if (isProcessing && activeTab !== 'scan') return; 
     setIsProcessing(true); setOcrStatus("📦 Căutare produs...");
@@ -120,11 +119,11 @@ export default function App() {
         setTempGramaj(parsedGramaj);
         setScanResult({
           id: barcode, nume: p.product_name || "Produs Necunoscut", brand: p.brands || "Brand Mixt",
-          kcal: p.nutriments['energy-kcal_100g'] || 0, carbs: p.nutriments.carbohydrates_100g || 0,
-          zaharuri: p.nutriments.sugars_100g || 0, proteine: p.nutriments.proteins_100g || 0,
-          grasimi: p.nutriments.fat_100g || 0, sare: p.nutriments.salt_100g || 0,
+          kcal: p.nutriments?.['energy-kcal_100g'] || 0, carbs: p.nutriments?.carbohydrates_100g || 0,
+          zaharuri: p.nutriments?.sugars_100g || 0, proteine: p.nutriments?.proteins_100g || 0,
+          grasimi: p.nutriments?.fat_100g || 0, sare: p.nutriments?.salt_100g || 0,
           sursaText: sursa, alergeniDetectati: alergeniGasitiGlobal,
-          imagine: p.image_front_small_url || "https://via.placeholder.com/150",
+          imagine: p.image_front_small_url || "https://cdn-icons-png.flaticon.com/512/2917/2917992.png",
           cantitate: 1, expirare: "", gramajTotal: parsedGramaj, procentRamas: 100
         });
         setOcrStatus("✅ PRODUS GĂSIT!"); Quagga.stop();
@@ -134,69 +133,105 @@ export default function App() {
     } catch (e) { setOcrStatus("⚠️ Eroare rețea"); setIsProcessing(false); }
   }
 
-  // --- LOGICĂ CĂUTARE MANUALĂ (TEXT SAU COD) ---
+  // --- NOU: CAUTARE GLOBALA (USDA + OPENFOODFACTS + TRANSLATOR) ---
   const searchProductManual = async (query: string) => {
     if (!query.trim()) return;
     setIsProcessing(true);
-    setOcrStatus("🔍 Căutare...");
+    setOcrStatus("🔍 Caut global...");
     setSearchResults([]); 
     setScanResult(null);
 
+    const qLower = query.trim().toLowerCase();
+    const isBarcode = /^\d+$/.test(qLower);
+
+    if (isBarcode) {
+      await fetchProduct(qLower);
+      return;
+    }
+
+    let combiResults: Product[] = [];
+
+    // 1. Căutare în OpenFoodFacts (Pentru produse ambalate: Nutella, Milka etc.)
     try {
-      const isBarcode = /^\d+$/.test(query.trim()); // Daca a introdus doar cifre
-
-      if (isBarcode) {
-        await fetchProduct(query.trim());
-      } else {
-        // Căutare text (ex: "ceapa")
-        const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query.trim())}&search_simple=1&action=process&json=1&page_size=6`);
-        const data = await res.json();
-
-        if (data.products && data.products.length > 0) {
-           const results = data.products
-             .filter((p: any) => p.product_name) // Trebuie să aibă nume
-             .map((p: any) => {
-               const sursa = [p.product_name, p.ingredients_text, p.brands].join(' ').toLowerCase();
-               const alergeniGasitiGlobal = ALERGENI_COMUNI.filter(a => sursa.includes(a.toLowerCase().replace('ă', 'a').replace('ș', 's').replace('ț', 't')));
-               let parsedGramaj = 100;
-               if (p.quantity) {
-                 const match = p.quantity.match(/(\d+)/);
-                 if (match) parsedGramaj = parseInt(match[1], 10);
-               }
-               return {
-                 id: p.code || Date.now().toString() + Math.random(),
-                 nume: p.product_name,
-                 brand: p.brands || "Brand Mixt",
-                 kcal: p.nutriments?.['energy-kcal_100g'] || 0,
-                 carbs: p.nutriments?.carbohydrates_100g || 0,
-                 zaharuri: p.nutriments?.sugars_100g || 0,
-                 proteine: p.nutriments?.proteins_100g || 0,
-                 grasimi: p.nutriments?.fat_100g || 0,
-                 sare: p.nutriments?.salt_100g || 0,
-                 sursaText: sursa,
-                 alergeniDetectati: alergeniGasitiGlobal,
-                 imagine: p.image_front_small_url || "https://via.placeholder.com/150",
-                 cantitate: 1, expirare: "", gramajTotal: parsedGramaj, procentRamas: 100
-               };
-           });
-
-           if (results.length === 1) {
-              selectSearchResult(results[0]);
-           } else if (results.length > 1) {
-              setSearchResults(results);
-              setOcrStatus("✅ Alege un produs din listă:");
-              Quagga.stop(); // Oprim camera cat timp alege
-           } else {
-              setOcrStatus("❌ Produs negăsit.");
-           }
-        } else {
-          setOcrStatus("❌ Niciun produs găsit.");
-        }
+      const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(qLower)}&search_simple=1&action=process&json=1&page_size=4`);
+      const offData = await offRes.json();
+      if (offData.products && offData.products.length > 0) {
+        const offMapped = offData.products.filter((p:any) => p.product_name).map((p:any) => {
+          const sursa = [p.product_name, p.ingredients_text, p.brands].join(' ').toLowerCase();
+          return {
+            id: p.code || "off-" + Date.now() + Math.random(),
+            nume: p.product_name,
+            brand: p.brands || "Produs Ambalat",
+            kcal: p.nutriments?.['energy-kcal_100g'] || 0,
+            carbs: p.nutriments?.carbohydrates_100g || 0,
+            zaharuri: p.nutriments?.sugars_100g || 0,
+            proteine: p.nutriments?.proteins_100g || 0,
+            grasimi: p.nutriments?.fat_100g || 0,
+            sare: p.nutriments?.salt_100g || 0,
+            sursaText: sursa,
+            alergeniDetectati: ALERGENI_COMUNI.filter(a => sursa.includes(a.toLowerCase())),
+            imagine: p.image_front_small_url || "https://cdn-icons-png.flaticon.com/512/2917/2917992.png",
+            cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100
+          };
+        });
+        combiResults = [...combiResults, ...offMapped];
       }
-    } catch (e) {
-      setOcrStatus("⚠️ Eroare rețea");
-    } finally {
-      setIsProcessing(false);
+    } catch(e) { console.warn("OFF API error"); }
+
+    // 2. Căutare în Baza de Date USDA (Pentru alimente naturale: Ceapă, Mere, Pui)
+    try {
+      // Traducem in engleza gratuit via MyMemory API
+      let enQuery = qLower;
+      const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(qLower)}&langpair=ro|en`);
+      const transData = await transRes.json();
+      if (transData?.responseData?.translatedText) {
+        enQuery = transData.responseData.translatedText;
+      }
+
+      // Căutăm in USDA FoodData Central
+      const usdaRes = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=DEMO_KEY&query=${encodeURIComponent(enQuery)}&pageSize=4`);
+      const usdaData = await usdaRes.json();
+      
+      if (usdaData.foods && usdaData.foods.length > 0) {
+        const usdaMapped = usdaData.foods.map((p: any) => {
+          const getNutr = (name: string) => p.foodNutrients.find((n:any) => n.nutrientName.includes(name))?.value || 0;
+          return {
+             id: "usda-" + p.fdcId,
+             nume: p.description.toLowerCase().replace(/\b\w/g, (c:string) => c.toUpperCase()),
+             brand: "Natural / Vrac (SUA)",
+             kcal: Math.round(getNutr("Energy")),
+             carbs: Math.round(getNutr("Carbohydrate") * 10) / 10,
+             zaharuri: Math.round(getNutr("Sugars") * 10) / 10,
+             proteine: Math.round(getNutr("Protein") * 10) / 10,
+             grasimi: Math.round(getNutr("Total lipid (fat)") * 10) / 10,
+             sare: 0,
+             sursaText: p.description.toLowerCase() + " " + qLower,
+             alergeniDetectati: ALERGENI_COMUNI.filter(a => p.description.toLowerCase().includes(a.toLowerCase())),
+             imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135520.png", // Iconita natural
+             cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100
+          };
+        });
+
+        // Transformăm primul rezultat USDA ca să aibă numele tău în RO
+        if (usdaMapped.length > 0) {
+           usdaMapped[0].nume = qLower.charAt(0).toUpperCase() + qLower.slice(1) + " (Proaspăt)";
+        }
+        
+        // Adaugam rezultatele naturale PESTE cele ambalate
+        combiResults = [...usdaMapped, ...combiResults]; 
+      }
+    } catch(e) { console.warn("USDA API error"); }
+
+    setIsProcessing(false);
+
+    if (combiResults.length > 0) {
+       // Filtram duplicatele (uneori OFF intoarce acelasi ID)
+       const uniqueResults = combiResults.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+       setSearchResults(uniqueResults.slice(0, 7)); // Aratam primele 7
+       setOcrStatus("✅ Alege un produs din listă:");
+       Quagga.stop();
+    } else {
+       setOcrStatus("❌ Niciun produs găsit (Încearcă în engleză).");
     }
   };
 
@@ -277,18 +312,13 @@ export default function App() {
   return (
     <div className="app-container">
       
-      {/* HEADER */}
       <header style={{ background: '#1b5e20', color: 'white', padding: '15px 20px', textAlign: 'center', borderRadius: '0 0 20px 20px', position: 'relative', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
         <h2 style={{ margin: 0, fontSize: 'clamp(1.1rem, 3vw, 1.4rem)' }}>KitchenGuard AI 🥗</h2>
-        <button 
-          onClick={() => setIsMonitorOpen(true)}
-          style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'white', color: '#d32f2f', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer' }}
-        >
+        <button onClick={() => setIsMonitorOpen(true)} style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'white', color: '#d32f2f', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer' }}>
           <HeartPulse size={20} />
         </button>
       </header>
 
-      {/* BANNER GLOBAL ALERTA EXPIRARE */}
       {expiringItems.length > 0 && !hideGlobalAlert && (
         <div style={{ background: '#ff9800', color: 'white', padding: '10px 15px', margin: '15px', borderRadius: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 'bold' }}>
@@ -298,7 +328,6 @@ export default function App() {
         </div>
       )}
 
-      {/* OVERLAY MONITOR GLICEMIE */}
       {isMonitorOpen && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -307,12 +336,8 @@ export default function App() {
             <p style={{ fontSize: '12px', color: '#666', marginTop: '-10px' }}>Senzor virtual de monitorizare</p>
             
             <div style={{ background: glicemie > 140 ? '#ffebee' : glicemie < 70 ? '#e3f2fd' : '#e8f5e9', border: `3px solid ${glicemie > 140 ? '#d32f2f' : glicemie < 70 ? '#1976d2' : '#1b5e20'}`, borderRadius: '20px', padding: '20px', margin: '20px 0', transition: 'all 0.3s', textAlign: 'center' }}>
-              <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: glicemie > 140 ? '#c62828' : glicemie < 70 ? '#1565c0' : '#1b5e20' }}>
-                {glicemie}
-              </div>
-              <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#555', marginTop: '5px' }}>
-                {glicemie > 140 ? '⚠️ Hiperglicemie' : glicemie < 70 ? '⚠️ Hipoglicemie' : '✅ Nivel Normal'}
-              </div>
+              <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: glicemie > 140 ? '#c62828' : glicemie < 70 ? '#1565c0' : '#1b5e20' }}>{glicemie}</div>
+              <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#555', marginTop: '5px' }}>{glicemie > 140 ? '⚠️ Hiperglicemie' : glicemie < 70 ? '⚠️ Hipoglicemie' : '✅ Nivel Normal'}</div>
               <div style={{ fontSize: '12px', color: '#888' }}>mg/dL</div>
             </div>
 
@@ -339,7 +364,6 @@ export default function App() {
         </div>
       )}
 
-      {/* OVERLAY MODAL PRODUSE EXPIRATE */}
       {showExpiringModal && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -350,10 +374,7 @@ export default function App() {
              {expiringItems.length === 0 ? <p>Nu ai alerte.</p> : expiringItems.map(item => (
                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', background: '#fff3e0', padding: '12px', borderRadius: '12px' }}>
                  <img src={item.imagine} width="40" height="40" style={{ borderRadius: '8px', objectFit: 'cover' }} />
-                 <div>
-                   <strong style={{ fontSize: '13px' }}>{item.nume}</strong><br/>
-                   <small style={{ color: '#d32f2f', fontWeight: 'bold' }}>Data: {new Date(item.expirare).toLocaleDateString('ro-RO')}</small>
-                 </div>
+                 <div><strong style={{ fontSize: '13px' }}>{item.nume}</strong><br/><small style={{ color: '#d32f2f', fontWeight: 'bold' }}>Data: {new Date(item.expirare).toLocaleDateString('ro-RO')}</small></div>
                </div>
              ))}
           </div>
@@ -362,10 +383,9 @@ export default function App() {
 
       <main style={{ padding: '15px' }}>
         
-        {/* ======================= TAB: SCAN ======================= */}
+        {/* ======================= TAB: SCAN / SEARCH ======================= */}
         {activeTab === 'scan' && !scanResult && (
           <div style={{ textAlign: 'center' }}>
-            {/* Ascundem camera daca userul cauta si are rezultate */}
             {searchResults.length === 0 && (
               <div ref={videoRef} className="video-container">
                 <div className="laser-line"></div>
@@ -385,13 +405,12 @@ export default function App() {
               </div>
             )}
 
-            {/* CUTIE CĂUTARE ȘI STATUS */}
             <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '15px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
               
               <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
                 <input
                   type="text"
-                  placeholder="Caută text (ex: mere) sau cod..."
+                  placeholder="Caută (ex: mere, ceapă, lapte)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && searchProductManual(searchQuery)}
@@ -413,7 +432,7 @@ export default function App() {
               )}
             </div>
 
-            {/* LISTA REZULTATE CAUTARE TEXT (BURGER LIST) */}
+            {/* LISTA REZULTATE CAUTARE GLOBALA */}
             {searchResults.length > 0 && (
               <div className="search-results-list" style={{ marginTop: '15px', background: 'white', borderRadius: '15px', padding: '5px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '2px solid #f0f0f0' }}>
@@ -422,10 +441,10 @@ export default function App() {
                 </div>
                 {searchResults.map((item, index) => (
                   <div key={index} onClick={() => selectSearchResult(item)} className="search-result-item" style={{ display: 'flex', alignItems: 'center', padding: '12px 10px', borderBottom: index < searchResults.length - 1 ? '1px solid #eee' : 'none', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '10px' }}>
-                    <img src={item.imagine} style={{ width: '45px', height: '45px', borderRadius: '8px', objectFit: 'cover', marginRight: '15px', border: '1px solid #ddd' }} />
+                    <img src={item.imagine} style={{ width: '45px', height: '45px', borderRadius: '8px', objectFit: 'contain', marginRight: '15px', border: '1px solid #ddd', background: '#fff' }} />
                     <div style={{ flex: 1, textAlign: 'left' }}>
                       <strong style={{ fontSize: '14px', color: '#333', display: 'block', lineHeight: '1.2' }}>{item.nume}</strong>
-                      {item.brand && <span style={{ fontSize: '11px', color: '#888' }}>{item.brand}</span>}
+                      <span style={{ fontSize: '11px', color: '#888' }}>{item.brand} • {item.kcal} kcal/100g</span>
                     </div>
                     <div style={{ background: '#f1f8e9', color: '#1b5e20', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' }}>
                       Alege
@@ -505,7 +524,7 @@ export default function App() {
                 return (
                   <div key={item.id} className="card" style={{ background: hasAlergiePericol ? '#fff5f5' : 'white', border: hasAlergiePericol ? '2px solid #d32f2f' : '1px solid #eee', padding: '15px' }}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <img src={item.imagine} width="50" height="50" style={{ borderRadius: '10px', marginRight: '12px', objectFit: 'cover' }} />
+                      <img src={item.imagine} width="50" height="50" style={{ borderRadius: '10px', marginRight: '12px', objectFit: 'contain' }} />
                       <div style={{ flex: 1 }}>
                         <strong style={{ fontSize: '15px' }}>{item.nume}</strong><br/>
                         <small style={{color: '#888', fontSize: '11px'}}>{item.brand}</small>
@@ -673,7 +692,6 @@ export default function App() {
 
         .card { background: white; padding: 15px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); transition: transform 0.2s; }
         
-        /* HOVER PENTRU REZULTATE CAUTARE */
         .search-result-item:hover { background: #f8f9fa !important; }
 
         .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 800px; height: 70px; background: white; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #eee; z-index: 100; border-radius: 20px 20px 0 0; box-shadow: 0 -2px 15px rgba(0,0,0,0.05); }
