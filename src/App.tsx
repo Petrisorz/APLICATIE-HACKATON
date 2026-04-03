@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Quagga from '@ericblade/quagga2';
 import Tesseract from 'tesseract.js';
-import { Camera, Refrigerator, Activity, AlertTriangle, Trash2, Search, Zap } from 'lucide-react';
+import { Camera, Refrigerator, Activity, AlertTriangle, Trash2, Search, Zap, Image as ImageIcon } from 'lucide-react';
 
 interface Product {
   id: string;
@@ -28,14 +28,14 @@ export default function App() {
 
   const userAlergeni = ['milk', 'lapte', 'lactose', 'gluten', 'wheat', 'alune', 'nuts'];
 
-  // --- METODA 1: QUAGGA2 (Linii Barcode) ---
+  // --- 1. SCANARE LIVE (QUAGGA2) ---
   useEffect(() => {
     if (activeTab === 'scan' && !scanResult) {
       startScanner();
     } else {
       Quagga.stop();
     }
-    return () => Quagga.stop();
+    return () => { Quagga.stop(); };
   }, [activeTab, scanResult]);
 
   const startScanner = () => {
@@ -43,13 +43,12 @@ export default function App() {
 
     Quagga.init({
       inputStream: {
-        name: "Live",
         type: "LiveStream",
         target: videoRef.current,
         constraints: {
           facingMode: "environment",
-          aspectRatio: { min: 1, max: 2 },
-          width: { ideal: 1280 }
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
         },
       },
       decoder: {
@@ -75,44 +74,42 @@ export default function App() {
     });
   };
 
-  // --- METODA 2: TESSERACT (Cifre Rezervă) ---
-  // Această funcție rulează în paralel la fiecare 2 secunde doar dacă Quagga nu prinde liniile
-  const fallbackOCR = async () => {
-    if (isProcessing || !canvasRef.current || scanResult) return;
+  // --- 2. ÎNCĂRCARE FOTO / GALERIE (TESSERACT) ---
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const video = videoRef.current?.querySelector('video');
-    if (!video) return;
+    setIsProcessing(true);
+    setOcrStatus("Analizez poza... ⏳");
+    Quagga.stop(); // Oprim camera live ca să nu consume resurse
 
-    const ctx = canvasRef.current.getContext('2d');
-    if (!ctx) return;
-
-    // Crop pe zona centrală unde sunt cifrele
-    ctx.drawImage(video, 400, 300, 480, 120, 0, 0, 400, 100);
-    
     try {
-      const { data: { text } } = await Tesseract.recognize(canvasRef.current, 'eng', {
+      const { data: { text } } = await Tesseract.recognize(file, 'eng', {
         // @ts-ignore
         tessedit_char_whitelist: '0123456789',
-        tessedit_pageseg_mode: '7'
       });
-      const cleaned = text.replace(/\D/g, '');
-      if (cleaned.length >= 8 && cleaned !== lastScannedCode.current) {
-        setOcrStatus("Detectat prin OCR (cifre)...");
+
+      const cleaned = text.replace(/\D/g, '').trim();
+      if (cleaned.length >= 8) {
+        setLiveCode(cleaned);
         fetchProduct(cleaned);
+      } else {
+        setOcrStatus("Nu am văzut cifre clare. Mai încearcă!");
+        setIsProcessing(false);
+        startScanner();
       }
-    } catch (e) { /* ignore ocr errors */ }
+    } catch (err) {
+      setOcrStatus("Eroare la procesarea pozei.");
+      setIsProcessing(false);
+      startScanner();
+    }
   };
 
-  useEffect(() => {
-    const timer = setInterval(fallbackOCR, 2000);
-    return () => clearInterval(timer);
-  }, [scanResult, isProcessing]);
-
-  // --- API FETCH ---
+  // --- 3. API FETCH ---
   async function fetchProduct(barcode: string) {
-    if (isProcessing) return;
+    if (isProcessing && activeTab !== 'scan') return; 
     setIsProcessing(true);
-    setOcrStatus("📦 Caut în baza de date...");
+    setOcrStatus("📦 Căutare produs...");
 
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
@@ -136,9 +133,10 @@ export default function App() {
         setOcrStatus("✅ PRODUS GĂSIT!");
         Quagga.stop();
       } else {
-        setOcrStatus("❌ Cod necunoscut: " + barcode);
+        setOcrStatus("❌ Cod negăsit: " + barcode);
         setIsProcessing(false);
-        lastScannedCode.current = ""; // Permite re-scanarea
+        lastScannedCode.current = "";
+        if (activeTab === 'scan') startScanner();
       }
     } catch (e) {
       setOcrStatus("⚠️ Eroare rețea");
@@ -162,100 +160,102 @@ export default function App() {
               borderRadius: '30px', 
               overflow: 'hidden', 
               border: '5px solid #1b5e20', 
-              height: '350px', 
+              height: '320px', 
               background: '#000' 
             }}>
-              {/* Linie Laser Animată */}
               <div className="laser-line"></div>
-              <canvas ref={canvasRef} width="400" height="100" style={{ display: 'none' }} />
             </div>
 
-            <div style={{ marginTop: '20px', background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 5px 15px rgba(0,0,0,0.1)' }}>
+            {/* BUTOANE POZE */}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+              <label style={{ flex: 1, background: '#fff', color: '#1b5e20', border: '2px solid #1b5e20', padding: '12px', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                <Camera size={18} /> FĂ POZĂ
+                <input type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
+              </label>
+              <label style={{ flex: 1, background: '#fff', color: '#1b5e20', border: '2px solid #1b5e20', padding: '12px', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                <ImageIcon size={18} /> GALERIE
+                <input type="file" accept="image/*" onChange={handleFileUpload} style={{ display: 'none' }} />
+              </label>
+            </div>
+
+            <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '20px', boxShadow: '0 5px 15px rgba(0,0,0,0.05)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', color: '#1b5e20' }}>
-                <Zap size={20} />
+                <Zap size={20} className={isProcessing ? "animate-pulse" : ""} />
                 <span style={{ fontWeight: 'bold' }}>{ocrStatus}</span>
               </div>
-              <h1 style={{ letterSpacing: '5px', color: '#333' }}>{liveCode || "••••••••"}</h1>
+              <h1 style={{ letterSpacing: '4px', color: '#333', margin: '10px 0' }}>{liveCode || "••••••••"}</h1>
             </div>
           </div>
         )}
 
         {scanResult && (
-          <div style={{ background: 'white', padding: '25px', borderRadius: '25px', boxShadow: '0 10px 30px rgba(0,0,0,0.2)', border: '2px solid #1b5e20' }}>
+          <div style={{ background: 'white', padding: '25px', borderRadius: '25px', border: '2px solid #1b5e20' }}>
             <img src={scanResult.imagine} style={{ width: '100px', display: 'block', margin: '0 auto 15px', borderRadius: '15px' }} />
-            <h2 style={{ margin: '0 0 5px 0', textAlign: 'center' }}>{scanResult.nume}</h2>
-            <p style={{ color: '#666', textAlign: 'center', marginBottom: '20px' }}>{scanResult.brand}</p>
+            <h2 style={{ margin: '0', textAlign: 'center' }}>{scanResult.nume}</h2>
+            <p style={{ color: '#666', textAlign: 'center', marginBottom: '15px' }}>{scanResult.brand}</p>
             
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
               <div style={{ flex: 1, background: '#e8f5e9', padding: '10px', borderRadius: '15px', textAlign: 'center' }}>
                 <small>Energie</small><br/><strong>{scanResult.kcal} kcal</strong>
               </div>
               <div style={{ flex: 1, background: '#e8f5e9', padding: '10px', borderRadius: '15px', textAlign: 'center' }}>
-                <small>Zaharuri</small><br/><strong>{scanResult.zaharuri}g</strong>
+                <small>Zaharuri</small><br/><strong>{scanResult.zaharuri} g</strong>
               </div>
             </div>
 
             {scanResult.alergeniDetectati.length > 0 && (
-              <div style={{ background: '#ffebee', color: '#c62828', padding: '15px', borderRadius: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <AlertTriangle /> <strong>ATENȚIE: {scanResult.alergeniDetectati.join(', ')}</strong>
+              <div style={{ background: '#ffebee', color: '#c62828', padding: '12px', borderRadius: '15px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={20} /> <strong>ALERGENI: {scanResult.alergeniDetectati.join(', ')}</strong>
               </div>
             )}
 
             <button 
               onClick={() => { setFridge([...fridge, scanResult]); setScanResult(null); setIsProcessing(false); setLiveCode(""); setActiveTab('fridge'); }}
-              style={{ width: '100%', background: '#1b5e20', color: 'white', border: 'none', padding: '18px', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px' }}
-            > ADAUGĂ ÎN FRIGIDER </button>
-            
-            <button 
-              onClick={() => { setScanResult(null); setIsProcessing(false); setLiveCode(""); lastScannedCode.current = ""; }}
-              style={{ width: '100%', background: 'none', border: 'none', color: '#888', marginTop: '10px' }}
-            > Reîncearcă scanarea </button>
+              style={{ width: '100%', background: '#1b5e20', color: 'white', border: 'none', padding: '16px', borderRadius: '15px', fontWeight: 'bold' }}
+            > ADAUGĂ ÎN STOC </button>
+            <button onClick={() => { setScanResult(null); setIsProcessing(false); setLiveCode(""); lastScannedCode.current = ""; startScanner(); }} style={{ width: '100%', border: 'none', background: 'none', color: '#888', marginTop: '10px' }}>Anulează</button>
           </div>
         )}
 
         {activeTab === 'fridge' && (
           <div>
-            <h3>📦 Produse în Stoc</h3>
+            <h3 style={{ paddingLeft: '5px' }}>📦 Produsele tale</h3>
+            {fridge.length === 0 && <p style={{textAlign: 'center', color: '#999', marginTop: '20px'}}>Frigiderul e gol.</p>}
             {fridge.map((item, idx) => (
-              <div key={idx} style={{ background: 'white', display: 'flex', alignItems: 'center', padding: '15px', borderRadius: '15px', marginBottom: '10px' }}>
-                <img src={item.imagine} width="50" style={{ borderRadius: '10px', marginRight: '15px' }} />
-                <div style={{ flex: 1 }}><strong>{item.nume}</strong><br/><small>{item.brand}</small></div>
-                <button onClick={() => setFridge(fridge.filter((_, i) => i !== idx))} style={{ color: '#f44336', background: 'none', border: 'none' }}><Trash2 /></button>
+              <div key={item.id + idx} style={{ background: 'white', display: 'flex', alignItems: 'center', padding: '15px', borderRadius: '15px', marginBottom: '10px' }}>
+                <img src={item.imagine} width="45" height="45" style={{ borderRadius: '8px', marginRight: '15px', objectFit: 'cover' }} />
+                <div style={{ flex: 1 }}><strong>{item.nume}</strong><br/><small style={{color: '#888'}}>{item.brand}</small></div>
+                <button onClick={() => setFridge(fridge.filter((_, i) => i !== idx))} style={{ color: '#f44336', background: 'none', border: 'none' }}><Trash2 size={20} /></button>
               </div>
             ))}
           </div>
         )}
-
       </main>
 
-      <nav style={{ position: 'fixed', bottom: 0, width: '100%', maxWidth: '450px', height: '80px', background: 'white', display: 'flex', justifyContent: 'space-around', alignItems: 'center', borderTop: '1px solid #ddd' }}>
+      <nav style={{ position: 'fixed', bottom: 0, width: '100%', maxWidth: '450px', height: '75px', background: 'white', display: 'flex', justifyContent: 'space-around', alignItems: 'center', borderTop: '1px solid #ddd', zIndex: 100 }}>
         <button onClick={() => setActiveTab('scan')} style={{ border: 'none', background: 'none', color: activeTab === 'scan' ? '#1b5e20' : '#ccc' }}>
-          <Camera /><br/><small>SCAN</small>
+          <Camera /><br/><span style={{fontSize: '10px'}}>SCAN</span>
         </button>
         <button onClick={() => setActiveTab('fridge')} style={{ border: 'none', background: 'none', color: activeTab === 'fridge' ? '#1b5e20' : '#ccc' }}>
-          <Refrigerator /><br/><small>STOC</small>
+          <Refrigerator /><br/><span style={{fontSize: '10px'}}>STOC</span>
         </button>
         <button onClick={() => setActiveTab('health')} style={{ border: 'none', background: 'none', color: activeTab === 'health' ? '#1b5e20' : '#ccc' }}>
-          <Activity /><br/><small>HEALTH</small>
+          <Activity /><br/><span style={{fontSize: '10px'}}>HEALTH</span>
         </button>
       </nav>
 
       <style>{`
         .laser-line {
           position: absolute;
-          top: 50%;
-          left: 5%;
-          right: 5%;
-          height: 3px;
-          background: red;
-          box-shadow: 0 0 15px red;
+          top: 50%; left: 5%; right: 5%;
+          height: 2px; background: red;
+          box-shadow: 0 0 10px red;
           z-index: 10;
-          animation: scanAnim 2s infinite ease-in-out;
+          animation: scanAnim 2.5s infinite ease-in-out;
         }
         @keyframes scanAnim {
-          0% { top: 30%; opacity: 0.3; }
-          50% { top: 70%; opacity: 1; }
-          100% { top: 30%; opacity: 0.3; }
+          0%, 100% { top: 30%; }
+          50% { top: 70%; }
         }
         video { width: 100%; height: 100%; object-fit: cover; }
       `}</style>
