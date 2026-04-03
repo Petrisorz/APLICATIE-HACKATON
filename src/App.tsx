@@ -43,9 +43,8 @@ export default function App() {
   const [dietKcalConsumed, setDietKcalConsumed] = useState(0);
   const [portiiDiet, setPortiiDiet] = useState<Record<string, number>>({});
 
-  // --- STĂRI NOI: MONITOR GLICEMIE & ALERTE ---
   const [isMonitorOpen, setIsMonitorOpen] = useState(false);
-  const [glicemie, setGlicemie] = useState(90); // Valoare normala standard
+  const [glicemie, setGlicemie] = useState(90);
   const [showExpiringModal, setShowExpiringModal] = useState(false);
   const [hideGlobalAlert, setHideGlobalAlert] = useState(false);
 
@@ -53,9 +52,6 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastScannedCode = useRef("");
 
-  // ==========================================
-  // --- 1. SCANARE LIVE (QUAGGA2) - NEATINS ---
-  // ==========================================
   useEffect(() => {
     if (activeTab === 'scan' && !scanResult) {
       startScanner();
@@ -83,7 +79,6 @@ export default function App() {
     });
   };
 
-  // --- 2. ÎNCĂRCARE FOTO / GALERIE (TESSERACT) - NEATINS ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -98,7 +93,6 @@ export default function App() {
     } catch (err) { setOcrStatus("Eroare la procesarea pozei."); setIsProcessing(false); startScanner(); }
   };
 
-  // --- 3. API FETCH (NEATINS) ---
   async function fetchProduct(barcode: string) {
     if (isProcessing && activeTab !== 'scan') return; 
     setIsProcessing(true); setOcrStatus("📦 Căutare produs...");
@@ -134,7 +128,6 @@ export default function App() {
     } catch (e) { setOcrStatus("⚠️ Eroare rețea"); setIsProcessing(false); }
   }
 
-  // --- FUNCTII FRIGIDER & DIET ---
   const adaugaInFrigider = () => {
     if (!scanResult) return;
     setFridge(prev => {
@@ -171,43 +164,35 @@ export default function App() {
 
   const checkAlergeniPericol = (sursaText: string) => alergeniSelectati.filter(a => sursaText.includes(a.toLowerCase().replace('ă', 'a').replace('ș', 's').replace('ț', 't')));
 
-  // --- LOGICA ALERTE EXPIRARE ---
   const getExpiringItems = () => {
     const now = new Date().getTime();
     const _48h = 48 * 60 * 60 * 1000;
     return fridge.filter(item => {
       if (!item.expirare) return false;
       const expTime = new Date(item.expirare).getTime();
-      return (expTime - now) <= _48h; // Expira in 48h sau a expirat deja
+      return (expTime - now) <= _48h; 
     });
   };
   const expiringItems = getExpiringItems();
 
-  // --- LOGICA RECOMANDARE HIPOGLICEMIE ---
   const genereazaRecomandareHipo = () => {
     if (fridge.length === 0) return "Nu ai alimente în frigider! Consumă urgent zahăr, miere sau un suc dulce.";
-    
-    // Cautam produse cu carbohidrati / zaharuri, le sortam descrescator
     const produseZaharoase = [...fridge].filter(p => p.carbs > 0).sort((a, b) => b.carbs - a.carbs);
     if (produseZaharoase.length === 0) return "Frigiderul tău nu are surse rapide de carbohidrați (zahăr/pâine). Consumă miere sau zahăr simplu!";
-
     const produs = produseZaharoase[0];
-    // Regula standard: 15g carbohidrati rapizi
-    // Daca 100g produs are X carbs => necesar = (15 * 100) / carbs
     const grameNecesare = Math.round((15 * 100) / produs.carbs);
     return `Recomandare rapidă: Mănâncă ~${grameNecesare}g de ${produs.nume} pentru a obține 15g de carbohidrați necesari recuperării.`;
   };
 
   return (
-    <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', background: '#f0f2f5', fontFamily: 'sans-serif', paddingBottom: '90px', position: 'relative' }}>
+    <div className="app-container">
       
       {/* HEADER */}
-      <header style={{ background: '#1b5e20', color: 'white', padding: '20px', textAlign: 'center', borderRadius: '0 0 20px 20px', position: 'relative' }}>
-        <h2 style={{ margin: 0 }}>KitchenGuard AI 🥗</h2>
-        {/* BUTON MONITOR GLICEMIE */}
+      <header style={{ background: '#1b5e20', color: 'white', padding: '20px', textAlign: 'center', borderRadius: '0 0 20px 20px', position: 'relative', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+        <h2 style={{ margin: 0, fontSize: 'clamp(1.2rem, 3vw, 1.5rem)' }}>KitchenGuard AI 🥗</h2>
         <button 
           onClick={() => setIsMonitorOpen(true)}
-          style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'white', color: '#d32f2f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}
+          style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'white', color: '#d32f2f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer' }}
         >
           <HeartPulse size={24} />
         </button>
@@ -215,26 +200,24 @@ export default function App() {
 
       {/* BANNER GLOBAL ALERTA EXPIRARE */}
       {expiringItems.length > 0 && !hideGlobalAlert && (
-        <div style={{ background: '#ff9800', color: 'white', padding: '10px 15px', margin: '10px 20px', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 'bold' }}>
-            <Bell size={18} /> Atenție! Ai {expiringItems.length} produs(e) care expiră curând!
+        <div style={{ background: '#ff9800', color: 'white', padding: '12px 20px', margin: '15px', borderRadius: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: 'bold' }}>
+            <Bell size={20} /> Atenție! Ai {expiringItems.length} produs(e) care expiră curând!
           </div>
-          <button onClick={() => setHideGlobalAlert(true)} style={{ background: 'none', border: 'none', color: 'white' }}><X size={18} /></button>
+          <button onClick={() => setHideGlobalAlert(true)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}><X size={20} /></button>
         </div>
       )}
 
       {/* OVERLAY MONITOR GLICEMIE */}
       {isMonitorOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: 'white', width: '100%', maxWidth: '400px', borderRadius: '25px', padding: '25px', textAlign: 'center', position: 'relative' }}>
-            <button onClick={() => setIsMonitorOpen(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'none', border: 'none', color: '#888' }}><X size={24} /></button>
-            
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <button onClick={() => setIsMonitorOpen(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={24} /></button>
             <h3 style={{ marginTop: 0, color: '#333' }}>Monitor Glicemie</h3>
             <p style={{ fontSize: '12px', color: '#666', marginTop: '-10px' }}>Senzor virtual de monitorizare</p>
             
-            {/* ECRAN DETECTOR */}
             <div style={{ background: glicemie > 140 ? '#ffebee' : glicemie < 70 ? '#e3f2fd' : '#e8f5e9', border: `3px solid ${glicemie > 140 ? '#d32f2f' : glicemie < 70 ? '#1976d2' : '#1b5e20'}`, borderRadius: '20px', padding: '30px', margin: '20px 0', transition: 'all 0.3s' }}>
-              <div style={{ fontSize: '48px', fontWeight: 'bold', color: glicemie > 140 ? '#c62828' : glicemie < 70 ? '#1565c0' : '#1b5e20' }}>
+              <div style={{ fontSize: '3rem', fontWeight: 'bold', color: glicemie > 140 ? '#c62828' : glicemie < 70 ? '#1565c0' : '#1b5e20' }}>
                 {glicemie}
               </div>
               <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#555', marginTop: '5px' }}>
@@ -243,7 +226,6 @@ export default function App() {
               <div style={{ fontSize: '12px', color: '#888' }}>mg/dL</div>
             </div>
 
-            {/* ACTIUNI & RECOMANDARI ALERTA */}
             {glicemie < 70 && (
               <div style={{ background: '#bbdefb', padding: '15px', borderRadius: '15px', textAlign: 'left', marginBottom: '20px', border: '1px solid #1976d2' }}>
                 <strong style={{ color: '#0d47a1', display: 'flex', alignItems: 'center', gap: '5px' }}><AlertCircle size={18}/> Alerta Scădere:</strong>
@@ -259,9 +241,9 @@ export default function App() {
             )}
 
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setGlicemie(prev => prev + 60)} style={{ flex: 1, background: '#ef5350', color: 'white', border: 'none', padding: '15px', borderRadius: '15px', fontWeight: 'bold' }}>⬆️ RAISE</button>
-              <button onClick={() => setGlicemie(90)} style={{ background: '#eee', border: 'none', padding: '15px', borderRadius: '15px' }}>Reset</button>
-              <button onClick={() => setGlicemie(prev => prev - 40)} style={{ flex: 1, background: '#42a5f5', color: 'white', border: 'none', padding: '15px', borderRadius: '15px', fontWeight: 'bold' }}>⬇️ REDUCE</button>
+              <button onClick={() => setGlicemie(prev => prev + 60)} style={{ flex: 1, background: '#ef5350', color: 'white', border: 'none', padding: '15px', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer' }}>⬆️ RAISE</button>
+              <button onClick={() => setGlicemie(90)} style={{ background: '#eee', border: 'none', padding: '15px', borderRadius: '15px', cursor: 'pointer' }}>Reset</button>
+              <button onClick={() => setGlicemie(prev => prev - 40)} style={{ flex: 1, background: '#42a5f5', color: 'white', border: 'none', padding: '15px', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer' }}>⬇️ REDUCE</button>
             </div>
           </div>
         </div>
@@ -269,17 +251,17 @@ export default function App() {
 
       {/* OVERLAY MODAL PRODUSE EXPIRATE */}
       {showExpiringModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: 'white', width: '100%', maxWidth: '400px', borderRadius: '20px', padding: '20px', maxHeight: '80vh', overflowY: 'auto' }}>
+        <div className="modal-overlay">
+          <div className="modal-content">
              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '10px', marginBottom: '15px' }}>
                <h3 style={{ margin: 0, color: '#d32f2f', display: 'flex', alignItems: 'center', gap: '8px' }}><AlertTriangle size={20}/> Expiră Curând!</h3>
-               <button onClick={() => setShowExpiringModal(false)} style={{ background: 'none', border: 'none' }}><X size={24}/></button>
+               <button onClick={() => setShowExpiringModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={24}/></button>
              </div>
              {expiringItems.length === 0 ? <p>Nu ai alerte.</p> : expiringItems.map(item => (
-               <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', background: '#fff3e0', padding: '10px', borderRadius: '10px' }}>
-                 <img src={item.imagine} width="40" height="40" style={{ borderRadius: '8px', objectFit: 'cover' }} />
+               <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '10px', background: '#fff3e0', padding: '15px', borderRadius: '15px' }}>
+                 <img src={item.imagine} width="50" height="50" style={{ borderRadius: '10px', objectFit: 'cover' }} />
                  <div>
-                   <strong style={{ fontSize: '14px' }}>{item.nume}</strong><br/>
+                   <strong style={{ fontSize: '15px' }}>{item.nume}</strong><br/>
                    <small style={{ color: '#d32f2f', fontWeight: 'bold' }}>Data: {new Date(item.expirare).toLocaleDateString('ro-RO')}</small>
                  </div>
                </div>
@@ -293,71 +275,71 @@ export default function App() {
         {/* ======================= TAB: SCAN ======================= */}
         {activeTab === 'scan' && !scanResult && (
           <div style={{ textAlign: 'center' }}>
-            <div ref={videoRef} style={{ position: 'relative', borderRadius: '30px', overflow: 'hidden', border: '5px solid #1b5e20', height: '320px', background: '#000' }}>
+            <div ref={videoRef} className="video-container">
               <div className="laser-line"></div>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-              <label style={{ flex: 1, background: '#fff', color: '#1b5e20', border: '2px solid #1b5e20', padding: '12px', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                <Camera size={18} /> FĂ POZĂ
+            <div style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
+              <label className="action-button">
+                <Camera size={20} /> FĂ POZĂ
                 <input type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
               </label>
-              <label style={{ flex: 1, background: '#fff', color: '#1b5e20', border: '2px solid #1b5e20', padding: '12px', borderRadius: '15px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
-                <ImageIcon size={18} /> GALERIE
+              <label className="action-button">
+                <ImageIcon size={20} /> GALERIE
                 <input type="file" accept="image/*" onChange={handleFileUpload} style={{ display: 'none' }} />
               </label>
             </div>
 
-            <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '20px', boxShadow: '0 5px 15px rgba(0,0,0,0.05)' }}>
+            <div style={{ marginTop: '20px', background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 5px 20px rgba(0,0,0,0.05)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', color: '#1b5e20' }}>
-                <Zap size={20} className={isProcessing ? "animate-pulse" : ""} />
-                <span style={{ fontWeight: 'bold' }}>{ocrStatus}</span>
+                <Zap size={24} className={isProcessing ? "animate-pulse" : ""} />
+                <span style={{ fontWeight: 'bold', fontSize: '16px' }}>{ocrStatus}</span>
               </div>
-              <h1 style={{ letterSpacing: '4px', color: '#333', margin: '10px 0' }}>{liveCode || "••••••••"}</h1>
+              <h1 style={{ letterSpacing: '4px', color: '#333', margin: '15px 0' }}>{liveCode || "••••••••"}</h1>
             </div>
           </div>
         )}
 
         {/* --- REZULTAT SCANARE --- */}
         {scanResult && (
-          <div style={{ background: 'white', padding: '20px', borderRadius: '25px', border: '2px solid #1b5e20' }}>
-            <img src={scanResult.imagine} style={{ width: '80px', display: 'block', margin: '0 auto 10px', borderRadius: '15px' }} />
-            <h3 style={{ margin: '0', textAlign: 'center' }}>{scanResult.nume}</h3>
-            <p style={{ color: '#666', textAlign: 'center', marginBottom: '15px', fontSize: '12px' }}>{scanResult.brand}</p>
+          <div style={{ background: 'white', padding: '25px', borderRadius: '25px', border: '3px solid #1b5e20', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', maxWidth: '500px', margin: '0 auto' }}>
+            <img src={scanResult.imagine} style={{ width: '100px', display: 'block', margin: '0 auto 15px', borderRadius: '15px' }} />
+            <h3 style={{ margin: '0', textAlign: 'center', fontSize: '1.2rem' }}>{scanResult.nume}</h3>
+            <p style={{ color: '#666', textAlign: 'center', marginBottom: '20px', fontSize: '14px' }}>{scanResult.brand}</p>
             
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-              <div style={{ flex: 1, background: '#e8f5e9', padding: '8px', borderRadius: '10px', textAlign: 'center' }}>
-                <small>Energie/100g</small><br/><strong>{scanResult.kcal} kcal</strong>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+              <div style={{ flex: 1, background: '#e8f5e9', padding: '12px', borderRadius: '15px', textAlign: 'center' }}>
+                <small>Energie/100g</small><br/><strong style={{fontSize: '1.1rem'}}>{scanResult.kcal} kcal</strong>
               </div>
-              <div style={{ flex: 1, background: '#e8f5e9', padding: '8px', borderRadius: '10px', textAlign: 'center' }}>
-                <small>Zaharuri/100g</small><br/><strong>{scanResult.zaharuri} g</strong>
-              </div>
-            </div>
-
-            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '15px', marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontWeight: 'bold', fontSize: '13px', marginBottom: '5px' }}>PACHETE/BUCĂȚI:</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <button onClick={() => setTempCantitate(Math.max(1, tempCantitate - 1))} style={{ background: '#ddd', border: 'none', padding: '10px', borderRadius: '10px' }}><Minus size={18} /></button>
-                <input type="number" value={tempCantitate} onChange={(e) => setTempCantitate(Number(e.target.value))} style={{ flex: 1, textAlign: 'center', fontSize: '18px', fontWeight: 'bold', border: '1px solid #ccc', borderRadius: '10px', padding: '8px' }} />
-                <button onClick={() => setTempCantitate(tempCantitate + 1)} style={{ background: '#1b5e20', color: 'white', border: 'none', padding: '10px', borderRadius: '10px' }}><Plus size={18} /></button>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', fontWeight: 'bold', fontSize: '11px', marginBottom: '5px' }}>GRAMAJ PER PACHET (g):</label>
-                  <input type="number" value={tempGramaj} onChange={(e) => setTempGramaj(Number(e.target.value))} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', fontWeight: 'bold', fontSize: '11px', marginBottom: '5px' }}>DATA EXPIRĂRII:</label>
-                  <input type="date" value={tempExpirare} onChange={(e) => setTempExpirare(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
-                </div>
+              <div style={{ flex: 1, background: '#e8f5e9', padding: '12px', borderRadius: '15px', textAlign: 'center' }}>
+                <small>Zaharuri/100g</small><br/><strong style={{fontSize: '1.1rem'}}>{scanResult.zaharuri} g</strong>
               </div>
             </div>
 
-            <button onClick={adaugaInFrigider} style={{ width: '100%', background: '#1b5e20', color: 'white', border: 'none', padding: '16px', borderRadius: '15px', fontWeight: 'bold' }}>
+            <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '20px', marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>PACHETE/BUCĂȚI:</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+                <button onClick={() => setTempCantitate(Math.max(1, tempCantitate - 1))} className="qty-button"><Minus size={20} /></button>
+                <input type="number" value={tempCantitate} onChange={(e) => setTempCantitate(Number(e.target.value))} style={{ flex: 1, textAlign: 'center', fontSize: '20px', fontWeight: 'bold', border: '2px solid #ddd', borderRadius: '12px', padding: '10px' }} />
+                <button onClick={() => setTempCantitate(tempCantitate + 1)} className="qty-button-add"><Plus size={20} /></button>
+              </div>
+
+              <div className="grid-2-col">
+                <div>
+                  <label style={{ display: 'block', fontWeight: 'bold', fontSize: '12px', marginBottom: '5px' }}>GRAMAJ PER PACHET (g):</label>
+                  <input type="number" value={tempGramaj} onChange={(e) => setTempGramaj(Number(e.target.value))} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #ddd', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 'bold', fontSize: '12px', marginBottom: '5px' }}>DATA EXPIRĂRII:</label>
+                  <input type="date" value={tempExpirare} onChange={(e) => setTempExpirare(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #ddd', boxSizing: 'border-box' }} />
+                </div>
+              </div>
+            </div>
+
+            <button onClick={adaugaInFrigider} style={{ width: '100%', background: '#1b5e20', color: 'white', border: 'none', padding: '18px', borderRadius: '15px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
               ADAUGĂ ÎN FRIGIDER
             </button>
-            <button onClick={() => { setScanResult(null); setIsProcessing(false); setLiveCode(""); lastScannedCode.current = ""; startScanner(); }} style={{ width: '100%', border: 'none', background: 'none', color: '#888', marginTop: '10px' }}>
+            <button onClick={() => { setScanResult(null); setIsProcessing(false); setLiveCode(""); lastScannedCode.current = ""; startScanner(); }} style={{ width: '100%', border: 'none', background: 'none', color: '#888', marginTop: '15px', padding: '10px', cursor: 'pointer' }}>
               Anulează
             </button>
           </div>
@@ -366,84 +348,86 @@ export default function App() {
         {/* ======================= TAB: FRIGIDER ======================= */}
         {activeTab === 'fridge' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ margin: 0, paddingLeft: '5px' }}>❄️ Frigiderul tău</h3>
               {expiringItems.length > 0 && (
-                <button onClick={() => setShowExpiringModal(true)} style={{ background: '#ff9800', color: 'white', border: 'none', borderRadius: '10px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 'bold', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' }}>
+                <button onClick={() => setShowExpiringModal(true)} style={{ background: '#ff9800', color: 'white', border: 'none', borderRadius: '10px', padding: '8px 15px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' }}>
                   <AlertCircle size={18} /> {expiringItems.length} Alerte
                 </button>
               )}
             </div>
             
-            {fridge.length === 0 && <p style={{textAlign: 'center', color: '#999', marginTop: '20px'}}>Frigiderul e gol.</p>}
+            {fridge.length === 0 && <p style={{textAlign: 'center', color: '#999', marginTop: '40px'}}>Frigiderul e gol.</p>}
             
-            {fridge.map((item) => {
-              const pericolCurent = checkAlergeniPericol(item.sursaText);
-              const hasAlergiePericol = pericolCurent.length > 0;
-              const isExpanded = expandedItems.includes(item.id);
+            <div className="responsive-grid">
+              {fridge.map((item) => {
+                const pericolCurent = checkAlergeniPericol(item.sursaText);
+                const hasAlergiePericol = pericolCurent.length > 0;
+                const isExpanded = expandedItems.includes(item.id);
 
-              return (
-                <div key={item.id} style={{ background: hasAlergiePericol ? '#fff5f5' : 'white', padding: '15px', borderRadius: '15px', marginBottom: '10px', border: hasAlergiePericol ? '3px solid #d32f2f' : '1px solid #eee', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', transition: 'all 0.3s' }}>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <img src={item.imagine} width="45" height="45" style={{ borderRadius: '8px', marginRight: '15px', objectFit: 'cover' }} />
-                    <div style={{ flex: 1 }}>
-                      <strong>{item.nume}</strong><br/>
-                      <small style={{color: '#888'}}>{item.brand}</small>
-                      {item.expirare && <div style={{ fontSize: '11px', color: '#f57c00', marginTop: '3px' }}>⏳ Exp: {new Date(item.expirare).toLocaleDateString('ro-RO')}</div>}
-                    </div>
+                return (
+                  <div key={item.id} className="card" style={{ background: hasAlergiePericol ? '#fff5f5' : 'white', border: hasAlergiePericol ? '3px solid #d32f2f' : '1px solid #eee' }}>
                     
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f0f2f5', borderRadius: '10px', padding: '5px' }}>
-                      <button onClick={() => modificaCantitate(item.id, 1)} style={{ border: 'none', background: 'none', color: '#1b5e20' }}><Plus size={16} /></button>
-                      <span style={{ fontWeight: 'bold', margin: '5px 0' }}>x{item.cantitate}</span>
-                      <button onClick={() => modificaCantitate(item.id, -1)} style={{ border: 'none', background: 'none', color: '#d32f2f' }}><Minus size={16} /></button>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <img src={item.imagine} width="60" height="60" style={{ borderRadius: '12px', marginRight: '15px', objectFit: 'cover' }} />
+                      <div style={{ flex: 1 }}>
+                        <strong style={{ fontSize: '1.1rem' }}>{item.nume}</strong><br/>
+                        <small style={{color: '#888'}}>{item.brand}</small>
+                        {item.expirare && <div style={{ fontSize: '12px', color: '#f57c00', marginTop: '5px', fontWeight: 'bold' }}>⏳ Exp: {new Date(item.expirare).toLocaleDateString('ro-RO')}</div>}
+                      </div>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f0f2f5', borderRadius: '12px', padding: '8px' }}>
+                        <button onClick={() => modificaCantitate(item.id, 1)} style={{ border: 'none', background: 'none', color: '#1b5e20', cursor: 'pointer' }}><Plus size={18} /></button>
+                        <span style={{ fontWeight: 'bold', margin: '5px 0', fontSize: '16px' }}>x{item.cantitate}</span>
+                        <button onClick={() => modificaCantitate(item.id, -1)} style={{ border: 'none', background: 'none', color: '#d32f2f', cursor: 'pointer' }}><Minus size={18} /></button>
+                      </div>
                     </div>
+
+                    {item.alergeniDetectati.length > 0 && (
+                      <div style={{ display: 'inline-block', border: '1px solid #ef5350', color: '#c62828', padding: '4px 8px', borderRadius: '8px', fontSize: '11px', marginTop: '12px', fontWeight: 'bold' }}>
+                        Conține: {item.alergeniDetectati.join(', ')}
+                      </div>
+                    )}
+
+                    {hasAlergiePericol && (
+                      <div style={{ background: '#d32f2f', color: 'white', padding: '10px', borderRadius: '10px', marginTop: '10px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <AlertTriangle size={16} /> <strong>PERICOL SĂNĂTATE: {pericolCurent.join(', ')}</strong>
+                      </div>
+                    )}
+
+                    <button onClick={() => toggleExpand(item.id)} style={{ width: '100%', background: '#f8f9fa', border: '1px solid #eee', borderRadius: '10px', color: '#666', padding: '8px', marginTop: '15px', display: 'flex', justifyContent: 'center', cursor: 'pointer' }}>
+                      {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </button>
+
+                    {isExpanded && (
+                      <div style={{ borderTop: '1px solid #eee', paddingTop: '15px', marginTop: '10px' }}>
+                        <div style={{ marginBottom: '15px', background: '#f9f9f9', padding: '15px', borderRadius: '15px' }}>
+                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#555', marginBottom: '10px', fontWeight: 'bold' }}>
+                             <span>MAI AI: {item.procentRamas}%</span>
+                             <span>Din pachet ({item.gramajTotal}g)</span>
+                           </div>
+                           <input 
+                             type="range" 
+                             min="0" max="100" 
+                             value={item.procentRamas}
+                             onChange={(e) => actualizeazaProcentRamas(item.id, Number(e.target.value))}
+                             style={{ width: '100%', accentColor: '#1b5e20', cursor: 'pointer' }}
+                           />
+                        </div>
+
+                        <div style={{ fontSize: '14px', color: '#555', lineHeight: '1.8' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}><span>🔥 Calorii / 100g:</span> <strong>{item.kcal} kcal</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}><span>🍞 Carbohidrați:</span> <strong>{item.carbs} g</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}><span>🥩 Proteine:</span> <strong>{item.proteine} g</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}><span>🧈 Grăsimi:</span> <strong>{item.grasimi} g</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>🧂 Sare:</span> <strong>{item.sare} g</strong></div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-
-                  {item.alergeniDetectati.length > 0 && (
-                    <div style={{ display: 'inline-block', border: '1px solid #ef5350', color: '#c62828', padding: '2px 6px', borderRadius: '6px', fontSize: '10px', marginTop: '8px', fontWeight: 'bold' }}>
-                      Conține: {item.alergeniDetectati.join(', ')}
-                    </div>
-                  )}
-
-                  {hasAlergiePericol && (
-                    <div style={{ background: '#d32f2f', color: 'white', padding: '8px', borderRadius: '8px', marginTop: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <AlertTriangle size={14} /> <strong>PERICOL SĂNĂTATE: {pericolCurent.join(', ')}</strong>
-                    </div>
-                  )}
-
-                  <button onClick={() => toggleExpand(item.id)} style={{ width: '100%', background: 'none', border: 'none', color: '#aaa', marginTop: '10px', display: 'flex', justifyContent: 'center' }}>
-                    {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                  </button>
-
-                  {isExpanded && (
-                    <div style={{ borderTop: '1px solid #eee', paddingTop: '10px', marginTop: '5px' }}>
-                      <div style={{ marginBottom: '15px', background: '#f9f9f9', padding: '10px', borderRadius: '10px' }}>
-                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#555', marginBottom: '5px', fontWeight: 'bold' }}>
-                           <span>MAI AI: {item.procentRamas}%</span>
-                           <span>Din pachet ({item.gramajTotal}g)</span>
-                         </div>
-                         <input 
-                           type="range" 
-                           min="0" max="100" 
-                           value={item.procentRamas}
-                           onChange={(e) => actualizeazaProcentRamas(item.id, Number(e.target.value))}
-                           style={{ width: '100%', accentColor: '#1b5e20' }}
-                         />
-                      </div>
-
-                      <div style={{ fontSize: '12px', color: '#555' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><span>🔥 Calorii / 100g:</span> <strong>{item.kcal} kcal</strong></div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><span>🍞 Carbohidrați:</span> <strong>{item.carbs} g</strong></div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><span>🥩 Proteine:</span> <strong>{item.proteine} g</strong></div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><span>🧈 Grăsimi:</span> <strong>{item.grasimi} g</strong></div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><span>🧂 Sare:</span> <strong>{item.sare} g</strong></div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -451,9 +435,9 @@ export default function App() {
         {activeTab === 'health' && (
           <div>
             <h3>🩺 Setări Alergeni</h3>
-            <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>Selectează alergenii de evitat. Produsele din frigider care îi conțin vor fi marcate cu roșu.</p>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>Selectează alergenii de evitat. Produsele din frigider care îi conțin vor fi marcate cu roșu.</p>
             
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div className="alergeni-grid">
               {ALERGENI_COMUNI.map(alergen => {
                 const isSelected = alergeniSelectati.includes(alergen);
                 return (
@@ -461,9 +445,9 @@ export default function App() {
                     key={alergen}
                     onClick={() => setAlergeniSelectati(prev => isSelected ? prev.filter(a => a !== alergen) : [...prev, alergen])}
                     style={{
-                      padding: '12px', borderRadius: '12px', border: isSelected ? '2px solid #d32f2f' : '1px solid #ddd',
+                      padding: '15px', borderRadius: '15px', border: isSelected ? '2px solid #d32f2f' : '1px solid #ddd',
                       background: isSelected ? '#ffebee' : 'white', color: isSelected ? '#d32f2f' : '#333',
-                      fontWeight: isSelected ? 'bold' : 'normal', transition: 'all 0.2s'
+                      fontWeight: isSelected ? 'bold' : 'normal', transition: 'all 0.2s', cursor: 'pointer', fontSize: '15px'
                     }}
                   >
                     {alergen}
@@ -477,85 +461,199 @@ export default function App() {
         {/* ======================= TAB: DIET ======================= */}
         {activeTab === 'diet' && (
           <div>
-            <div style={{ textAlign: 'center', background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
+            <div style={{ textAlign: 'center', background: 'white', padding: '30px', borderRadius: '25px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom: '30px' }}>
               <h3>🎯 Target Zilnic</h3>
-              <div style={{ position: 'relative', width: '160px', height: '160px', margin: '20px auto' }}>
-                <svg width="160" height="160">
-                  <circle cx="80" cy="80" r="70" stroke="#eee" strokeWidth="12" fill="none" />
-                  <circle cx="80" cy="80" r="70" stroke={dietKcalConsumed > dietKcalMax ? "#d32f2f" : "#1b5e20"} strokeWidth="12" fill="none"
-                    strokeDasharray={440} 
-                    strokeDashoffset={440 - (Math.min(dietKcalConsumed / dietKcalMax, 1) * 440)} 
-                    strokeLinecap="round" transform="rotate(-90 80 80)" style={{ transition: 'stroke-dashoffset 0.5s ease' }} 
+              <div style={{ position: 'relative', width: '200px', height: '200px', margin: '20px auto' }}>
+                <svg width="200" height="200">
+                  <circle cx="100" cy="100" r="90" stroke="#eee" strokeWidth="15" fill="none" />
+                  <circle cx="100" cy="100" r="90" stroke={dietKcalConsumed > dietKcalMax ? "#d32f2f" : "#1b5e20"} strokeWidth="15" fill="none"
+                    strokeDasharray={565} 
+                    strokeDashoffset={565 - (Math.min(dietKcalConsumed / dietKcalMax, 1) * 565)} 
+                    strokeLinecap="round" transform="rotate(-90 100 100)" style={{ transition: 'stroke-dashoffset 0.6s ease' }} 
                   />
                 </svg>
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: dietKcalConsumed > dietKcalMax ? '#d32f2f' : '#333' }}>{dietKcalConsumed}</div>
-                  <div style={{ fontSize: '12px', color: '#888' }}>kcal</div>
+                  <div style={{ fontSize: '32px', fontWeight: 'bold', color: dietKcalConsumed > dietKcalMax ? '#d32f2f' : '#333' }}>{dietKcalConsumed}</div>
+                  <div style={{ fontSize: '14px', color: '#888' }}>kcal</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px', fontSize: '14px' }}>
-                out of <input type="number" value={dietKcalMax} onChange={(e) => setDietKcalMax(Number(e.target.value))} style={{ width: '60px', textAlign: 'center', border: '1px solid #ccc', borderRadius: '5px', padding: '3px' }} /> kcal
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', fontSize: '16px' }}>
+                out of <input type="number" value={dietKcalMax} onChange={(e) => setDietKcalMax(Number(e.target.value))} style={{ width: '80px', textAlign: 'center', border: '2px solid #ccc', borderRadius: '8px', padding: '5px', fontWeight: 'bold' }} /> kcal
               </div>
-              <p style={{ color: dietKcalConsumed > dietKcalMax ? '#d32f2f' : '#1b5e20', fontWeight: 'bold', marginTop: '10px' }}>
+              <p style={{ color: dietKcalConsumed > dietKcalMax ? '#d32f2f' : '#1b5e20', fontWeight: 'bold', marginTop: '15px', fontSize: '16px' }}>
                 {dietKcalMax - dietKcalConsumed > 0 ? `${dietKcalMax - dietKcalConsumed} kcal left` : `Ai depășit cu ${dietKcalConsumed - dietKcalMax} kcal!`}
               </p>
-              <button onClick={() => setDietKcalConsumed(0)} style={{ marginTop: '10px', fontSize: '11px', background: 'none', border: 'none', color: '#888' }}>🔄 Resetează calorii</button>
+              <button onClick={() => setDietKcalConsumed(0)} style={{ marginTop: '15px', padding: '10px 20px', background: '#f5f5f5', borderRadius: '10px', border: 'none', color: '#555', cursor: 'pointer', fontWeight: 'bold' }}>🔄 Resetează calorii</button>
             </div>
 
-            <h4 style={{ paddingLeft: '5px' }}>🍽️ Mănâncă din Frigider</h4>
-            {fridge.length === 0 && <p style={{ fontSize: '13px', color: '#888', textAlign: 'center' }}>Niciun produs disponibil.</p>}
-            {fridge.map(item => (
-              <div key={item.id} style={{ background: 'white', padding: '15px', borderRadius: '15px', marginBottom: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                  <div>
-                    <strong style={{ fontSize: '14px' }}>{item.nume}</strong> <span style={{ fontSize: '11px', color: '#888' }}>(x{item.cantitate})</span><br/>
-                    <small style={{ color: '#1b5e20', fontWeight: 'bold' }}>{item.kcal} kcal / 100g</small>
+            <h4 style={{ paddingLeft: '5px', fontSize: '1.2rem' }}>🍽️ Mănâncă din Frigider</h4>
+            {fridge.length === 0 && <p style={{ fontSize: '15px', color: '#888', textAlign: 'center' }}>Niciun produs disponibil.</p>}
+            
+            <div className="responsive-grid">
+              {fridge.map(item => (
+                <div key={item.id} className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                    <div>
+                      <strong style={{ fontSize: '16px' }}>{item.nume}</strong> <span style={{ fontSize: '13px', color: '#888' }}>(x{item.cantitate})</span><br/>
+                      <small style={{ color: '#1b5e20', fontWeight: 'bold', fontSize: '14px' }}>{item.kcal} kcal / 100g</small>
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#ef5350', fontWeight: 'bold', textAlign: 'right', background: '#ffebee', padding: '4px 8px', borderRadius: '8px' }}>
+                      Stoc: {item.procentRamas}%
+                    </div>
                   </div>
-                  <div style={{ fontSize: '11px', color: '#ef5350', fontWeight: 'bold', textAlign: 'right' }}>
-                    Stoc: {item.procentRamas}%
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <label style={{ position: 'absolute', top: '-10px', left: '10px', background: 'white', padding: '0 5px', fontSize: '12px', color: '#666', fontWeight: 'bold' }}>Porție (g)</label>
+                      <input 
+                        type="number" 
+                        value={portiiDiet[item.id] || 100} 
+                        onChange={(e) => setPortiiDiet({...portiiDiet, [item.id]: Number(e.target.value)})}
+                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #ccc', boxSizing: 'border-box', fontSize: '16px', fontWeight: 'bold' }}
+                      />
+                    </div>
+                    <button onClick={() => consumaProdus(item)} style={{ background: '#e8f5e9', color: '#1b5e20', border: '2px solid #1b5e20', padding: '12px 20px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>
+                      CONSUMĂ
+                    </button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <div style={{ flex: 1, position: 'relative' }}>
-                    <label style={{ position: 'absolute', top: '-8px', left: '10px', background: 'white', padding: '0 5px', fontSize: '10px', color: '#666' }}>Porție (g)</label>
-                    <input 
-                      type="number" 
-                      value={portiiDiet[item.id] || 100} 
-                      onChange={(e) => setPortiiDiet({...portiiDiet, [item.id]: Number(e.target.value)})}
-                      style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #ccc', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <button onClick={() => consumaProdus(item)} style={{ background: '#e8f5e9', color: '#1b5e20', border: '1px solid #1b5e20', padding: '10px 15px', borderRadius: '10px', fontWeight: 'bold' }}>
-                    CONSUMĂ
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </main>
 
       {/* ======================= BOTTOM NAV ======================= */}
-      <nav style={{ position: 'fixed', bottom: 0, width: '100%', maxWidth: '450px', height: '75px', background: 'white', display: 'flex', justifyContent: 'space-around', alignItems: 'center', borderTop: '1px solid #ddd', zIndex: 100 }}>
-        <button onClick={() => setActiveTab('scan')} style={{ border: 'none', background: 'none', color: activeTab === 'scan' ? '#1b5e20' : '#ccc' }}>
-          <Camera /><br/><span style={{fontSize: '10px', fontWeight: 'bold'}}>SCAN</span>
+      <div style={{ height: '90px' }}></div> {/* Spacer pentru navigație */}
+      <nav className="bottom-nav">
+        <button className="nav-btn" onClick={() => setActiveTab('scan')} style={{ color: activeTab === 'scan' ? '#1b5e20' : '#888' }}>
+          <Camera size={26} /><span>SCAN</span>
         </button>
-        <button onClick={() => setActiveTab('fridge')} style={{ border: 'none', background: 'none', color: activeTab === 'fridge' ? '#1b5e20' : '#ccc' }}>
-          <Refrigerator /><br/><span style={{fontSize: '10px', fontWeight: 'bold'}}>FRIGIDER</span>
+        <button className="nav-btn" onClick={() => setActiveTab('fridge')} style={{ color: activeTab === 'fridge' ? '#1b5e20' : '#888' }}>
+          <Refrigerator size={26} /><span>FRIGIDER</span>
         </button>
-        <button onClick={() => setActiveTab('health')} style={{ border: 'none', background: 'none', color: activeTab === 'health' ? '#1b5e20' : '#ccc' }}>
-          <Activity /><br/><span style={{fontSize: '10px', fontWeight: 'bold'}}>HEALTH</span>
+        <button className="nav-btn" onClick={() => setActiveTab('health')} style={{ color: activeTab === 'health' ? '#1b5e20' : '#888' }}>
+          <Activity size={26} /><span>HEALTH</span>
         </button>
-        <button onClick={() => setActiveTab('diet')} style={{ border: 'none', background: 'none', color: activeTab === 'diet' ? '#1b5e20' : '#ccc' }}>
-          <PieChart /><br/><span style={{fontSize: '10px', fontWeight: 'bold'}}>DIET</span>
+        <button className="nav-btn" onClick={() => setActiveTab('diet')} style={{ color: activeTab === 'diet' ? '#1b5e20' : '#888' }}>
+          <PieChart size={26} /><span>DIET</span>
         </button>
       </nav>
 
       <style>{`
-        .laser-line { position: absolute; top: 50%; left: 5%; right: 5%; height: 2px; background: red; box-shadow: 0 0 10px red; z-index: 10; animation: scanAnim 2.5s infinite ease-in-out; }
-        @keyframes scanAnim { 0%, 100% { top: 30%; } 50% { top: 70%; } }
+        /* RESPONSIVE LAYOUT */
+        body { margin: 0; background: #e0e5ec; }
+        .app-container {
+          width: 100%;
+          max-width: 800px;
+          margin: 0 auto;
+          min-height: 100vh;
+          background: #f4f6f9;
+          font-family: 'Segoe UI', system-ui, sans-serif;
+          position: relative;
+          box-shadow: 0 0 30px rgba(0,0,0,0.1);
+        }
+
+        /* GRID SYSTEM PENTRU LISTE */
+        .responsive-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 15px;
+        }
+        .alergeni-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: 12px;
+        }
+        .grid-2-col {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 15px;
+        }
+
+        /* VIDEO CAMERA ADAPTIVĂ */
+        .video-container {
+          position: relative;
+          border-radius: 30px;
+          overflow: hidden;
+          border: 5px solid #1b5e20;
+          width: 100%;
+          aspect-ratio: 4/3;
+          max-height: 60vh;
+          background: #000;
+        }
         video { width: 100%; height: 100%; object-fit: cover; }
-        input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; transition: 0.2s; }
+
+        /* CARDURI COMUNE */
+        .card {
+          background: white;
+          padding: 20px;
+          border-radius: 20px;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+          transition: transform 0.2s;
+        }
+
+        /* BOTTOM NAV CENTRAT */
+        .bottom-nav {
+          position: fixed;
+          bottom: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 100%;
+          max-width: 800px;
+          height: 80px;
+          background: white;
+          display: flex;
+          justify-content: space-around;
+          align-items: center;
+          border-top: 1px solid #e0e0e0;
+          z-index: 100;
+          border-radius: 25px 25px 0 0;
+          box-shadow: 0 -5px 20px rgba(0,0,0,0.05);
+        }
+        .nav-btn {
+          border: none;
+          background: none;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .nav-btn span { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; }
+        .nav-btn:hover { transform: translateY(-3px); }
+
+        /* BUTOANE SI INPUTURI */
+        .action-button {
+          flex: 1; background: #fff; color: #1b5e20; border: 2px solid #1b5e20; 
+          padding: 15px; border-radius: 15px; font-weight: bold; cursor: pointer; 
+          display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s;
+        }
+        .action-button:hover { background: #f1f8e9; }
+        .qty-button { background: #eee; border: none; padding: 12px; border-radius: 12px; cursor: pointer; }
+        .qty-button-add { background: #1b5e20; color: white; border: none; padding: 12px; border-radius: 12px; cursor: pointer; }
+        
+        /* MODALE ANIMATE */
+        .modal-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+          background: rgba(0,0,0,0.6); z-index: 999; display: flex; 
+          align-items: center; justify-content: center; padding: 20px;
+          backdrop-filter: blur(5px);
+        }
+        .modal-content {
+          background: white; width: 100%; max-width: 450px; 
+          border-radius: 25px; padding: 25px; max-height: 85vh; 
+          overflow-y: auto; position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+          animation: slideUp 0.3s ease-out;
+        }
+
+        /* ANIMATII */
+        .laser-line { position: absolute; top: 50%; left: 5%; right: 5%; height: 2px; background: red; box-shadow: 0 0 15px red; z-index: 10; animation: scanAnim 2.5s infinite ease-in-out; }
+        @keyframes scanAnim { 0%, 100% { top: 20%; } 50% { top: 80%; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* FIX CALENDAR ICON PE MOBIL */
+        input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; transition: 0.2s; width: 20px; height: 20px; }
         input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
       `}</style>
     </div>
