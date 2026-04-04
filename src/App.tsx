@@ -42,12 +42,25 @@ interface Product {
 
 const ALERGENI_COMUNI = ['Lapte', 'Gluten', 'Ouă', 'Alune', 'Nuci', 'Soia', 'Pește', 'Fructe de mare', 'Țelină', 'Muștar'];
 
+const BAZA_DATE_PROASPATA: Product[] = [
+  { id: "raw-1", nume: "Ceapă proaspătă", brand: "Legume", kcal: 40, carbs: 9, zaharuri: 4.2, proteine: 1.1, grasimi: 0.1, sare: 0, sursaText: "ceapa onion", alergeniDetectati: [], imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135520.png", cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100 },
+  { id: "raw-2", nume: "Mere (Fructe)", brand: "Fructe proaspete", kcal: 52, carbs: 14, zaharuri: 10.4, proteine: 0.3, grasimi: 0.2, sare: 0, sursaText: "mere mar apple", alergeniDetectati: [], imagine: "https://cdn-icons-png.flaticon.com/512/415/415682.png", cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100 },
+  { id: "raw-3", nume: "Banane", brand: "Fructe proaspete", kcal: 89, carbs: 23, zaharuri: 12.2, proteine: 1.1, grasimi: 0.3, sare: 0, sursaText: "banane banana", alergeniDetectati: [], imagine: "https://cdn-icons-png.flaticon.com/512/2909/2909808.png", cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100 },
+  { id: "raw-4", nume: "Roșii proaspete", brand: "Legume", kcal: 18, carbs: 3.9, zaharuri: 2.6, proteine: 0.9, grasimi: 0.2, sare: 0, sursaText: "rosii tomato", alergeniDetectati: [], imagine: "https://cdn-icons-png.flaticon.com/512/1202/1202125.png", cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100 },
+  { id: "raw-5", nume: "Cartofi cruzi", brand: "Legume", kcal: 77, carbs: 17.5, zaharuri: 0.8, proteine: 2, grasimi: 0.1, sare: 0, sursaText: "cartofi potato", alergeniDetectati: [], imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135502.png", cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100 },
+  { id: "raw-6", nume: "Ouă (găină)", brand: "Proaspăt", kcal: 143, carbs: 0.7, zaharuri: 0.4, proteine: 13, grasimi: 9.5, sare: 0.3, sursaText: "oua ou egg", alergeniDetectati: ["Ouă"], imagine: "https://cdn-icons-png.flaticon.com/512/837/837560.png", cantitate: 30, expirare: "", gramajTotal: 50, procentRamas: 100 },
+  { id: "raw-7", nume: "Pâine Albă", brand: "Brutărie", kcal: 265, carbs: 49, zaharuri: 5, proteine: 9, grasimi: 3.2, sare: 1.5, sursaText: "paine paine alba bread", alergeniDetectati: ["Gluten"], imagine: "https://cdn-icons-png.flaticon.com/512/3214/3214307.png", cantitate: 1, expirare: "", gramajTotal: 500, procentRamas: 100 },
+  { id: "raw-8", nume: "Piept de pui crud", brand: "Carne", kcal: 165, carbs: 0, zaharuri: 0, proteine: 31, grasimi: 3.6, sare: 0.1, sursaText: "carne de pui piept", alergeniDetectati: [], imagine: "https://cdn-icons-png.flaticon.com/512/1895/1895685.png", cantitate: 1, expirare: "", gramajTotal: 500, procentRamas: 100 }
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'scan' | 'fridge' | 'health' | 'diet'>('scan');
   
   const [fridge, setFridge] = useState<Product[]>([]);
   const [scanResult, setScanResult] = useState<Product | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const processingRef = useRef(false); // Referinta pentru camera ca sa nu blocam ciclul de viata
+
   const [liveCode, setLiveCode] = useState("");
   const [ocrStatus, setOcrStatus] = useState("Apropie codul de bare...");
 
@@ -73,6 +86,11 @@ export default function App() {
   const videoRef = useRef<HTMLDivElement>(null);
   const lastScannedCode = useRef("");
 
+  // Sincronizare stare procesare pentru camera
+  useEffect(() => {
+    processingRef.current = isProcessing;
+  }, [isProcessing]);
+
   // ==========================================
   // --- SINCRONIZARE FIREBASE (LIVE) ---
   // ==========================================
@@ -85,44 +103,44 @@ export default function App() {
       items.sort((a, b) => a.nume.localeCompare(b.nume));
       setFridge(items);
     }, (error) => {
-      alert("⚠️ Eroare citire Firebase: " + error.message);
+      console.warn("Nu s-a putut citi din Firebase:", error.message);
     });
 
     return () => unsubscribe();
   }, []);
 
   // ==========================================
-  // --- SISTEM DE CONTROL CAMERĂ AUTOMAT ---
+  // --- SCANNER QUAGGA REPARAT (FARA LOOP) ---
   // ==========================================
   useEffect(() => {
-    // Aici e magia! Camera pornește doar dacă suntem în meniul "scan", nu avem deja un produs selectat, nu avem listă de căutare deschisă și aplicația NU procesează.
-    const shouldRunScanner = activeTab === 'scan' && !scanResult && searchResults.length === 0 && !isProcessing;
+    const shouldRunScanner = activeTab === 'scan' && !scanResult && searchResults.length === 0;
     
     if (shouldRunScanner) {
       startScanner();
     } else {
-      Quagga.stop();
+      try { Quagga.stop(); } catch(e) {}
     }
     
-    return () => { Quagga.stop(); };
-  }, [activeTab, scanResult, searchResults.length, isProcessing]);
+    return () => { try { Quagga.stop(); } catch(e) {} };
+  }, [activeTab, scanResult, searchResults.length]);
 
   const startScanner = () => {
     if (!videoRef.current) return;
+    
     Quagga.init({
       inputStream: { type: "LiveStream", target: videoRef.current, constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } },
       decoder: { readers: ["ean_reader", "ean_8_reader", "upc_reader", "code_128_reader"] },
       locate: true
     }, (err) => {
-      if (err) { setOcrStatus("Eroare cameră!"); return; }
+      if (err) { setOcrStatus("Eroare cameră. Verifică permisiunile!"); return; }
       Quagga.start(); setOcrStatus("Vânez liniile codului... 🔍");
     });
 
-    Quagga.offDetected(); // Oprește orice ascultare veche ca să nu blocheze memoria
+    Quagga.offDetected();
     Quagga.onDetected((data) => {
       const code = data.codeResult.code;
-      // Verificăm dacă nu e același cod și dacă aplicația nu e cumva deja ocupată
-      if (code && code !== lastScannedCode.current && !isProcessing) {
+      // Daca se proceseaza deja ceva, ignoram complet
+      if (code && code !== lastScannedCode.current && !processingRef.current) {
         lastScannedCode.current = code; 
         setLiveCode(code); 
         fetchProduct(code);
@@ -133,43 +151,25 @@ export default function App() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setIsProcessing(true); setOcrStatus("Analizez poza... ⏳"); 
+    setSearchResults([]); setSearchQuery("");
     
-    setIsProcessing(true); 
-    setOcrStatus("Analizez poza... ⏳"); 
-    
-    if (searchResults.length > 0) setSearchResults([]); 
-    if (searchQuery !== "") setSearchQuery("");
-
     try {
       const { data: { text } } = await Tesseract.recognize(file, 'eng', { // @ts-ignore
         tessedit_char_whitelist: '0123456789' 
       });
       const cleaned = text.replace(/\D/g, '').trim();
-      if (cleaned.length >= 8) { 
-        setLiveCode(cleaned); 
-        fetchProduct(cleaned); 
-      } else { 
-        setOcrStatus("Nu am văzut cifre clare. Mai încearcă!"); 
-        setIsProcessing(false); 
-      }
-    } catch (err) { 
-      setOcrStatus("Eroare la procesarea pozei."); 
-      setIsProcessing(false); 
-    }
+      if (cleaned.length >= 8) { setLiveCode(cleaned); fetchProduct(cleaned); } 
+      else { setOcrStatus("Nu am văzut cifre. Mai încearcă!"); setIsProcessing(false); }
+    } catch (err) { setOcrStatus("Eroare la procesarea pozei."); setIsProcessing(false); }
   };
 
   async function fetchProduct(barcode: string) {
-    if (isProcessing && activeTab !== 'scan') return; 
-    setIsProcessing(true); 
-    setOcrStatus("📦 Căutare produs...");
-    
-    if (searchResults.length > 0) setSearchResults([]); 
-    if (searchQuery !== "") setSearchQuery("");
-
+    setIsProcessing(true); setOcrStatus("📦 Căutare produs...");
+    setSearchResults([]); setSearchQuery("");
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
       const data = await res.json();
-      
       if (data.status === 1) {
         const p = data.product;
         const sursa = [p.product_name, p.ingredients_text, p.brands].join(' ').toLowerCase();
@@ -193,42 +193,42 @@ export default function App() {
           imagine: p.image_front_small_url || "https://cdn-icons-png.flaticon.com/512/2917/2917992.png",
           cantitate: 1, expirare: "", gramajTotal: parsedGramaj, procentRamas: 100
         });
-        
-        setOcrStatus("✅ PRODUS GĂSIT!"); 
-        setIsProcessing(false);
+        setOcrStatus("✅ PRODUS GĂSIT!");
       } else {
-        setOcrStatus("❌ Cod negăsit: " + barcode); 
-        setIsProcessing(false); 
-        // Punem un timer ca să nu scaneze ca mitraliera același cod dacă nu există
+        setOcrStatus("❌ Cod negăsit: " + barcode);
         setTimeout(() => { lastScannedCode.current = ""; }, 2500); 
       }
     } catch (e) { 
       setOcrStatus("⚠️ Eroare rețea"); 
-      setIsProcessing(false); 
       setTimeout(() => { lastScannedCode.current = ""; }, 2500); 
+    } finally {
+      setIsProcessing(false);
     }
   }
 
+  // ==========================================
+  // --- CAUTARE MANUALA REPARATA (LOCAL + API) ---
+  // ==========================================
   const searchProductManual = async (query: string) => {
     if (!query.trim()) return;
-    
     setIsProcessing(true);
-    setOcrStatus("🔍 Caut global...");
-    
-    if (searchResults.length > 0) setSearchResults([]); 
+    setOcrStatus("🔍 Caut...");
+    setSearchResults([]); 
     setScanResult(null);
 
     const qLower = query.trim().toLowerCase();
-    const isBarcode = /^\d+$/.test(qLower);
-
-    if (isBarcode) {
+    
+    // Daca a scris cifre, căutăm direct ca pe cod de bare
+    if (/^\d+$/.test(qLower)) {
       await fetchProduct(qLower);
       return;
     }
 
-    let combiResults: Product[] = [];
+    // 1. Căutăm în baza de date LOCALĂ (Plasã de siguranță, super rapidă)
+    const localMatches = BAZA_DATE_PROASPATA.filter(p => p.sursaText.includes(qLower));
+    let combiResults: Product[] = [...localMatches];
 
-    // Căutare OpenFoodFacts (Ambalate)
+    // 2. Căutăm pe internet în paralel
     try {
       const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(qLower)}&search_simple=1&action=process&json=1&page_size=4`);
       const offData = await offRes.json();
@@ -249,53 +249,17 @@ export default function App() {
         });
         combiResults = [...combiResults, ...offMapped];
       }
-    } catch(e) { console.warn("OFF API error"); }
-
-    // Căutare USDA (Alimente Naturale) cu Translator
-    try {
-      let enQuery = qLower;
-      const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(qLower)}&langpair=ro|en`);
-      const transData = await transRes.json();
-      if (transData?.responseData?.translatedText) {
-        enQuery = transData.responseData.translatedText;
-      }
-
-      const usdaRes = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=DEMO_KEY&query=${encodeURIComponent(enQuery)}&pageSize=4`);
-      const usdaData = await usdaRes.json();
-      
-      if (usdaData.foods && usdaData.foods.length > 0) {
-        const usdaMapped = usdaData.foods.map((p: any) => {
-          const getNutr = (name: string) => p.foodNutrients.find((n:any) => n.nutrientName.includes(name))?.value || 0;
-          return {
-             id: "usda-" + p.fdcId,
-             nume: p.description.toLowerCase().replace(/\b\w/g, (c:string) => c.toUpperCase()),
-             brand: "Natural / Vrac (SUA)",
-             kcal: Math.round(getNutr("Energy")), carbs: Math.round(getNutr("Carbohydrate") * 10) / 10,
-             zaharuri: Math.round(getNutr("Sugars") * 10) / 10, proteine: Math.round(getNutr("Protein") * 10) / 10,
-             grasimi: Math.round(getNutr("Total lipid (fat)") * 10) / 10, sare: 0,
-             sursaText: p.description.toLowerCase() + " " + qLower,
-             alergeniDetectati: ALERGENI_COMUNI.filter(a => p.description.toLowerCase().includes(a.toLowerCase())),
-             imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135520.png", 
-             cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100
-          };
-        });
-
-        if (usdaMapped.length > 0) {
-           usdaMapped[0].nume = qLower.charAt(0).toUpperCase() + qLower.slice(1) + " (Proaspăt)";
-        }
-        combiResults = [...usdaMapped, ...combiResults]; 
-      }
-    } catch(e) { console.warn("USDA API error"); }
+    } catch(e) { console.warn("Eroare API OFF"); }
 
     setIsProcessing(false);
 
     if (combiResults.length > 0) {
-       const uniqueResults = combiResults.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-       setSearchResults(uniqueResults.slice(0, 7)); 
+       // Filtram duplicatele posibile
+       const uniqueResults = combiResults.filter((v, i, a) => a.findIndex(t => (t.nume === v.nume)) === i);
+       setSearchResults(uniqueResults.slice(0, 8)); 
        setOcrStatus("✅ Alege un produs din listă:");
     } else {
-       setOcrStatus("❌ Niciun produs găsit (Încearcă în engleză).");
-       setTimeout(() => { lastScannedCode.current = ""; }, 2000);
+       setOcrStatus("❌ Niciun produs găsit.");
     }
   };
 
@@ -306,9 +270,8 @@ export default function App() {
     setTempGramaj(item.gramajTotal);
     
     setScanResult(item);
-    
-    if (searchResults.length > 0) setSearchResults([]);
-    if (searchQuery !== "") setSearchQuery("");
+    setSearchResults([]);
+    setSearchQuery("");
     setOcrStatus("✅ PRODUS SELECTAT!");
   };
 
@@ -345,11 +308,10 @@ export default function App() {
       return; 
     }
 
-    // Resetăm ecranele corect
     setScanResult(null); 
     setIsProcessing(false); 
     setLiveCode(""); 
-    lastScannedCode.current = ""; // Îi dăm voie camerei să scaneze același produs iar mai târziu
+    lastScannedCode.current = ""; 
     setActiveTab('fridge');
   };
 
@@ -367,25 +329,19 @@ export default function App() {
       } else {
         await updateDoc(docRef, { cantitate: nouaCantitate });
       }
-    } catch (e: any) {
-      alert("⚠️ Eroare Firebase: " + e.message);
-    }
+    } catch (e: any) { alert("⚠️ Eroare Firebase: " + e.message); }
   };
 
   const actualizeazaProcentRamas = async (id: string, procent: number) => {
     try {
-      const safeId = id.toString().replace(/\//g, '-');
-      const docRef = doc(db, "produse", safeId);
+      const docRef = doc(db, "produse", id.toString().replace(/\//g, '-'));
       await updateDoc(docRef, { procentRamas: procent });
-    } catch (e: any) {
-      alert("⚠️ Eroare Firebase: " + e.message);
-    }
+    } catch (e: any) {}
   };
 
   const stergeProdusFinal = async (id: string) => {
     try {
-      const safeId = id.toString().replace(/\//g, '-');
-      await deleteDoc(doc(db, "produse", safeId));
+      await deleteDoc(doc(db, "produse", id.toString().replace(/\//g, '-')));
     } catch(e: any) { alert("⚠️ Eroare Firebase: " + e.message); }
   }
 
@@ -405,20 +361,14 @@ export default function App() {
        nouProcent = nouaCantitate > 0 ? 100 : 0; 
     }
 
-    const safeId = item.id.toString().replace(/\//g, '-');
-    const docRef = doc(db, "produse", safeId);
+    const docRef = doc(db, "produse", item.id.toString().replace(/\//g, '-'));
     try {
       if (nouaCantitate <= 0) {
         await deleteDoc(docRef);
       } else {
-        await updateDoc(docRef, { 
-          procentRamas: Math.max(0, Math.round(nouProcent)), 
-          cantitate: nouaCantitate 
-        });
+        await updateDoc(docRef, { procentRamas: Math.max(0, Math.round(nouProcent)), cantitate: nouaCantitate });
       }
-    } catch (e: any) {
-      alert("⚠️ Eroare Firebase: " + e.message);
-    }
+    } catch (e: any) {}
   };
 
   const toggleExpand = (id: string) => setExpandedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -562,7 +512,8 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '2px solid #f0f0f0' }}>
                   <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#333' }}>Rezultate căutare:</span>
                   <button onClick={() => { 
-                    if (searchResults.length > 0) setSearchResults([]); 
+                    setSearchResults([]); 
+                    setSearchQuery("");
                   }} style={{ background: 'none', border: 'none', color: '#d32f2f', fontWeight: 'bold', cursor: 'pointer' }}>Închide</button>
                 </div>
                 {searchResults.map((item, index) => (
