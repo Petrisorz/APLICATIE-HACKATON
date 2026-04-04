@@ -85,22 +85,27 @@ export default function App() {
       items.sort((a, b) => a.nume.localeCompare(b.nume));
       setFridge(items);
     }, (error) => {
-      // DACA PICA CONEXIUNEA SAU REGULILE, ARATA PE ECRAN!
       alert("⚠️ Eroare citire Firebase: " + error.message);
     });
 
     return () => unsubscribe();
   }, []);
 
-  // SCANNER QUAGGA
+  // ==========================================
+  // --- SISTEM DE CONTROL CAMERĂ AUTOMAT ---
+  // ==========================================
   useEffect(() => {
-    if (activeTab === 'scan' && !scanResult && searchResults.length === 0) {
+    // Aici e magia! Camera pornește doar dacă suntem în meniul "scan", nu avem deja un produs selectat, nu avem listă de căutare deschisă și aplicația NU procesează.
+    const shouldRunScanner = activeTab === 'scan' && !scanResult && searchResults.length === 0 && !isProcessing;
+    
+    if (shouldRunScanner) {
       startScanner();
     } else {
       Quagga.stop();
     }
+    
     return () => { Quagga.stop(); };
-  }, [activeTab, scanResult, searchResults]);
+  }, [activeTab, scanResult, searchResults.length, isProcessing]);
 
   const startScanner = () => {
     if (!videoRef.current) return;
@@ -112,10 +117,15 @@ export default function App() {
       if (err) { setOcrStatus("Eroare cameră!"); return; }
       Quagga.start(); setOcrStatus("Vânez liniile codului... 🔍");
     });
+
+    Quagga.offDetected(); // Oprește orice ascultare veche ca să nu blocheze memoria
     Quagga.onDetected((data) => {
       const code = data.codeResult.code;
-      if (code && code !== lastScannedCode.current) {
-        lastScannedCode.current = code; setLiveCode(code); fetchProduct(code);
+      // Verificăm dacă nu e același cod și dacă aplicația nu e cumva deja ocupată
+      if (code && code !== lastScannedCode.current && !isProcessing) {
+        lastScannedCode.current = code; 
+        setLiveCode(code); 
+        fetchProduct(code);
       }
     });
   };
@@ -123,25 +133,43 @@ export default function App() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setIsProcessing(true); setOcrStatus("Analizez poza... ⏳"); Quagga.stop();
-    setSearchResults([]); setSearchQuery("");
+    
+    setIsProcessing(true); 
+    setOcrStatus("Analizez poza... ⏳"); 
+    
+    if (searchResults.length > 0) setSearchResults([]); 
+    if (searchQuery !== "") setSearchQuery("");
+
     try {
       const { data: { text } } = await Tesseract.recognize(file, 'eng', { // @ts-ignore
         tessedit_char_whitelist: '0123456789' 
       });
       const cleaned = text.replace(/\D/g, '').trim();
-      if (cleaned.length >= 8) { setLiveCode(cleaned); fetchProduct(cleaned); } 
-      else { setOcrStatus("Nu am văzut cifre clare. Mai încearcă!"); setIsProcessing(false); startScanner(); }
-    } catch (err) { setOcrStatus("Eroare la procesarea pozei."); setIsProcessing(false); startScanner(); }
+      if (cleaned.length >= 8) { 
+        setLiveCode(cleaned); 
+        fetchProduct(cleaned); 
+      } else { 
+        setOcrStatus("Nu am văzut cifre clare. Mai încearcă!"); 
+        setIsProcessing(false); 
+      }
+    } catch (err) { 
+      setOcrStatus("Eroare la procesarea pozei."); 
+      setIsProcessing(false); 
+    }
   };
 
   async function fetchProduct(barcode: string) {
     if (isProcessing && activeTab !== 'scan') return; 
-    setIsProcessing(true); setOcrStatus("📦 Căutare produs...");
-    setSearchResults([]); setSearchQuery("");
+    setIsProcessing(true); 
+    setOcrStatus("📦 Căutare produs...");
+    
+    if (searchResults.length > 0) setSearchResults([]); 
+    if (searchQuery !== "") setSearchQuery("");
+
     try {
       const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
       const data = await res.json();
+      
       if (data.status === 1) {
         const p = data.product;
         const sursa = [p.product_name, p.ingredients_text, p.brands].join(' ').toLowerCase();
@@ -155,6 +183,7 @@ export default function App() {
           if (match) parsedGramaj = parseInt(match[1], 10);
         }
         setTempGramaj(parsedGramaj);
+        
         setScanResult({
           id: barcode, nume: p.product_name || "Produs Necunoscut", brand: p.brands || "Brand Mixt",
           kcal: p.nutriments?.['energy-kcal_100g'] || 0, carbs: p.nutriments?.carbohydrates_100g || 0,
@@ -164,18 +193,29 @@ export default function App() {
           imagine: p.image_front_small_url || "https://cdn-icons-png.flaticon.com/512/2917/2917992.png",
           cantitate: 1, expirare: "", gramajTotal: parsedGramaj, procentRamas: 100
         });
-        setOcrStatus("✅ PRODUS GĂSIT!"); Quagga.stop();
+        
+        setOcrStatus("✅ PRODUS GĂSIT!"); 
+        setIsProcessing(false);
       } else {
-        setOcrStatus("❌ Cod negăsit: " + barcode); setIsProcessing(false); lastScannedCode.current = ""; if (activeTab === 'scan') startScanner();
+        setOcrStatus("❌ Cod negăsit: " + barcode); 
+        setIsProcessing(false); 
+        // Punem un timer ca să nu scaneze ca mitraliera același cod dacă nu există
+        setTimeout(() => { lastScannedCode.current = ""; }, 2500); 
       }
-    } catch (e) { setOcrStatus("⚠️ Eroare rețea"); setIsProcessing(false); }
+    } catch (e) { 
+      setOcrStatus("⚠️ Eroare rețea"); 
+      setIsProcessing(false); 
+      setTimeout(() => { lastScannedCode.current = ""; }, 2500); 
+    }
   }
 
   const searchProductManual = async (query: string) => {
     if (!query.trim()) return;
+    
     setIsProcessing(true);
     setOcrStatus("🔍 Caut global...");
-    setSearchResults([]); 
+    
+    if (searchResults.length > 0) setSearchResults([]); 
     setScanResult(null);
 
     const qLower = query.trim().toLowerCase();
@@ -188,6 +228,7 @@ export default function App() {
 
     let combiResults: Product[] = [];
 
+    // Căutare OpenFoodFacts (Ambalate)
     try {
       const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(qLower)}&search_simple=1&action=process&json=1&page_size=4`);
       const offData = await offRes.json();
@@ -198,14 +239,10 @@ export default function App() {
             id: p.code || "off-" + Date.now() + Math.random(),
             nume: p.product_name,
             brand: p.brands || "Produs Ambalat",
-            kcal: p.nutriments?.['energy-kcal_100g'] || 0,
-            carbs: p.nutriments?.carbohydrates_100g || 0,
-            zaharuri: p.nutriments?.sugars_100g || 0,
-            proteine: p.nutriments?.proteins_100g || 0,
-            grasimi: p.nutriments?.fat_100g || 0,
-            sare: p.nutriments?.salt_100g || 0,
-            sursaText: sursa,
-            alergeniDetectati: ALERGENI_COMUNI.filter(a => sursa.includes(a.toLowerCase())),
+            kcal: p.nutriments?.['energy-kcal_100g'] || 0, carbs: p.nutriments?.carbohydrates_100g || 0,
+            zaharuri: p.nutriments?.sugars_100g || 0, proteine: p.nutriments?.proteins_100g || 0,
+            grasimi: p.nutriments?.fat_100g || 0, sare: p.nutriments?.salt_100g || 0,
+            sursaText: sursa, alergeniDetectati: ALERGENI_COMUNI.filter(a => sursa.includes(a.toLowerCase())),
             imagine: p.image_front_small_url || "https://cdn-icons-png.flaticon.com/512/2917/2917992.png",
             cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100
           };
@@ -214,6 +251,7 @@ export default function App() {
       }
     } catch(e) { console.warn("OFF API error"); }
 
+    // Căutare USDA (Alimente Naturale) cu Translator
     try {
       let enQuery = qLower;
       const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(qLower)}&langpair=ro|en`);
@@ -232,12 +270,9 @@ export default function App() {
              id: "usda-" + p.fdcId,
              nume: p.description.toLowerCase().replace(/\b\w/g, (c:string) => c.toUpperCase()),
              brand: "Natural / Vrac (SUA)",
-             kcal: Math.round(getNutr("Energy")),
-             carbs: Math.round(getNutr("Carbohydrate") * 10) / 10,
-             zaharuri: Math.round(getNutr("Sugars") * 10) / 10,
-             proteine: Math.round(getNutr("Protein") * 10) / 10,
-             grasimi: Math.round(getNutr("Total lipid (fat)") * 10) / 10,
-             sare: 0,
+             kcal: Math.round(getNutr("Energy")), carbs: Math.round(getNutr("Carbohydrate") * 10) / 10,
+             zaharuri: Math.round(getNutr("Sugars") * 10) / 10, proteine: Math.round(getNutr("Protein") * 10) / 10,
+             grasimi: Math.round(getNutr("Total lipid (fat)") * 10) / 10, sare: 0,
              sursaText: p.description.toLowerCase() + " " + qLower,
              alergeniDetectati: ALERGENI_COMUNI.filter(a => p.description.toLowerCase().includes(a.toLowerCase())),
              imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135520.png", 
@@ -258,9 +293,9 @@ export default function App() {
        const uniqueResults = combiResults.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
        setSearchResults(uniqueResults.slice(0, 7)); 
        setOcrStatus("✅ Alege un produs din listă:");
-       Quagga.stop();
     } else {
        setOcrStatus("❌ Niciun produs găsit (Încearcă în engleză).");
+       setTimeout(() => { lastScannedCode.current = ""; }, 2000);
     }
   };
 
@@ -269,9 +304,11 @@ export default function App() {
     setTempCantitate(isEgg ? 30 : 1);
     setTempExpirare("");
     setTempGramaj(item.gramajTotal);
+    
     setScanResult(item);
-    setSearchResults([]);
-    setSearchQuery("");
+    
+    if (searchResults.length > 0) setSearchResults([]);
+    if (searchQuery !== "") setSearchQuery("");
     setOcrStatus("✅ PRODUS SELECTAT!");
   };
 
@@ -284,8 +321,6 @@ export default function App() {
     const finalGramaj = Number(tempGramaj) || 100;
     
     const existingItem = fridge.find(p => p.id === scanResult.id);
-    
-    // IMPORTANT: Firebase nu accepta caractere dubioase in ID-uri (gen slash-uri)
     const safeId = scanResult.id.toString().replace(/\//g, '-');
     const docRef = doc(db, "produse", safeId);
     
@@ -306,11 +341,16 @@ export default function App() {
         });
       }
     } catch (e: any) {
-      alert("⚠️ Eroare Firebase la salvare: " + e.message); // AFISAM EROAREA SA O VEZI!
-      return; // Oprim fluxul daca a dat eroare
+      alert("⚠️ Eroare Firebase la salvare: " + e.message); 
+      return; 
     }
 
-    setScanResult(null); setIsProcessing(false); setLiveCode(""); setSearchQuery(""); setSearchResults([]); setActiveTab('fridge');
+    // Resetăm ecranele corect
+    setScanResult(null); 
+    setIsProcessing(false); 
+    setLiveCode(""); 
+    lastScannedCode.current = ""; // Îi dăm voie camerei să scaneze același produs iar mai târziu
+    setActiveTab('fridge');
   };
 
   const modificaCantitate = async (id: string, delta: number) => {
@@ -484,6 +524,7 @@ export default function App() {
         {/* ======================= TAB: SCAN / SEARCH ======================= */}
         {activeTab === 'scan' && !scanResult && (
           <div style={{ textAlign: 'center' }}>
+            
             {searchResults.length === 0 && (
               <div ref={videoRef} className="video-container">
                 <div className="laser-line"></div>
@@ -520,7 +561,9 @@ export default function App() {
               <div className="search-results-list" style={{ marginTop: '15px', background: 'white', borderRadius: '15px', padding: '5px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '2px solid #f0f0f0' }}>
                   <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#333' }}>Rezultate căutare:</span>
-                  <button onClick={() => { setSearchResults([]); startScanner(); }} style={{ background: 'none', border: 'none', color: '#d32f2f', fontWeight: 'bold', cursor: 'pointer' }}>Închide</button>
+                  <button onClick={() => { 
+                    if (searchResults.length > 0) setSearchResults([]); 
+                  }} style={{ background: 'none', border: 'none', color: '#d32f2f', fontWeight: 'bold', cursor: 'pointer' }}>Închide</button>
                 </div>
                 {searchResults.map((item, index) => (
                   <div key={index} onClick={() => selectSearchResult(item)} className="search-result-item" style={{ display: 'flex', alignItems: 'center', padding: '12px 10px', borderBottom: index < searchResults.length - 1 ? '1px solid #eee' : 'none', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '10px' }}>
@@ -576,7 +619,12 @@ export default function App() {
             <button onClick={adaugaInFrigider} style={{ width: '100%', background: '#1b5e20', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(27,94,32,0.2)' }}>
               ADAUGĂ ÎN CLOUD (FRIGIDER)
             </button>
-            <button onClick={() => { setScanResult(null); setIsProcessing(false); setLiveCode(""); lastScannedCode.current = ""; startScanner(); }} style={{ width: '100%', border: 'none', background: 'none', color: '#888', marginTop: '10px', padding: '10px', cursor: 'pointer', fontSize: '13px' }}>
+            <button onClick={() => { 
+              setScanResult(null); 
+              setIsProcessing(false); 
+              setLiveCode(""); 
+              lastScannedCode.current = ""; 
+            }} style={{ width: '100%', border: 'none', background: 'none', color: '#888', marginTop: '10px', padding: '10px', cursor: 'pointer', fontSize: '13px' }}>
               Anulează
             </button>
           </div>
