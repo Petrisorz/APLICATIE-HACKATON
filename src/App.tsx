@@ -3,6 +3,24 @@ import Quagga from '@ericblade/quagga2';
 import Tesseract from 'tesseract.js';
 import { Camera, Refrigerator, Activity, AlertTriangle, Trash2, Search, Zap, Image as ImageIcon, Plus, Minus, ChevronDown, ChevronUp, PieChart, HeartPulse, Bell, X, AlertCircle } from 'lucide-react';
 
+// --- CONFIGURARE FIREBASE ---
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCcQAma55Gggt1jOru36i_yNTXx7k0AKu0",
+  authDomain: "frigiderhackaton.firebaseapp.com",
+  projectId: "frigiderhackaton",
+  storageBucket: "frigiderhackaton.firebasestorage.app",
+  messagingSenderId: "837840134336",
+  appId: "1:837840134336:web:eb404d9b0fdf2be0ab4d25",
+  measurementId: "G-W879751WZR"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+// ----------------------------
+
 interface Product {
   id: string;
   nume: string;
@@ -26,7 +44,10 @@ const ALERGENI_COMUNI = ['Lapte', 'Gluten', 'Ouă', 'Alune', 'Nuci', 'Soia', 'Pe
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'scan' | 'fridge' | 'health' | 'diet'>('scan');
+  
+  // Aici vor veni datele în timp real din Firebase
   const [fridge, setFridge] = useState<Product[]>([]);
+  
   const [scanResult, setScanResult] = useState<Product | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [liveCode, setLiveCode] = useState("");
@@ -54,6 +75,25 @@ export default function App() {
   const videoRef = useRef<HTMLDivElement>(null);
   const lastScannedCode = useRef("");
 
+  // ==========================================
+  // --- SINCRONIZARE FIREBASE (LIVE) ---
+  // ==========================================
+  useEffect(() => {
+    // Această funcție citește și actualizează "fridge" de fiecare dată când cineva schimbă ceva în baza de date
+    const unsubscribe = onSnapshot(collection(db, "produse"), (snapshot) => {
+      const items: Product[] = [];
+      snapshot.forEach((doc) => {
+        items.push(doc.data() as Product);
+      });
+      // Sortăm produsele alfabetic ca să nu sară pe ecran
+      items.sort((a, b) => a.nume.localeCompare(b.nume));
+      setFridge(items);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // SCANNER QUAGGA
   useEffect(() => {
     if (activeTab === 'scan' && !scanResult && searchResults.length === 0) {
       startScanner();
@@ -96,7 +136,6 @@ export default function App() {
     } catch (err) { setOcrStatus("Eroare la procesarea pozei."); setIsProcessing(false); startScanner(); }
   };
 
-  // FETCH SIMPLU PENTRU COD DE BARE (Ambalate)
   async function fetchProduct(barcode: string) {
     if (isProcessing && activeTab !== 'scan') return; 
     setIsProcessing(true); setOcrStatus("📦 Căutare produs...");
@@ -133,7 +172,6 @@ export default function App() {
     } catch (e) { setOcrStatus("⚠️ Eroare rețea"); setIsProcessing(false); }
   }
 
-  // --- NOU: CAUTARE GLOBALA (USDA + OPENFOODFACTS + TRANSLATOR) ---
   const searchProductManual = async (query: string) => {
     if (!query.trim()) return;
     setIsProcessing(true);
@@ -151,7 +189,7 @@ export default function App() {
 
     let combiResults: Product[] = [];
 
-    // 1. Căutare în OpenFoodFacts (Pentru produse ambalate: Nutella, Milka etc.)
+    // OpenFoodFacts (Ambalate)
     try {
       const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(qLower)}&search_simple=1&action=process&json=1&page_size=4`);
       const offData = await offRes.json();
@@ -178,9 +216,8 @@ export default function App() {
       }
     } catch(e) { console.warn("OFF API error"); }
 
-    // 2. Căutare în Baza de Date USDA (Pentru alimente naturale: Ceapă, Mere, Pui)
+    // USDA (Alimente Naturale) + Translator
     try {
-      // Traducem in engleza gratuit via MyMemory API
       let enQuery = qLower;
       const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(qLower)}&langpair=ro|en`);
       const transData = await transRes.json();
@@ -188,7 +225,6 @@ export default function App() {
         enQuery = transData.responseData.translatedText;
       }
 
-      // Căutăm in USDA FoodData Central
       const usdaRes = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=DEMO_KEY&query=${encodeURIComponent(enQuery)}&pageSize=4`);
       const usdaData = await usdaRes.json();
       
@@ -207,17 +243,14 @@ export default function App() {
              sare: 0,
              sursaText: p.description.toLowerCase() + " " + qLower,
              alergeniDetectati: ALERGENI_COMUNI.filter(a => p.description.toLowerCase().includes(a.toLowerCase())),
-             imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135520.png", // Iconita natural
+             imagine: "https://cdn-icons-png.flaticon.com/512/1135/1135520.png", 
              cantitate: 1, expirare: "", gramajTotal: 100, procentRamas: 100
           };
         });
 
-        // Transformăm primul rezultat USDA ca să aibă numele tău în RO
         if (usdaMapped.length > 0) {
            usdaMapped[0].nume = qLower.charAt(0).toUpperCase() + qLower.slice(1) + " (Proaspăt)";
         }
-        
-        // Adaugam rezultatele naturale PESTE cele ambalate
         combiResults = [...usdaMapped, ...combiResults]; 
       }
     } catch(e) { console.warn("USDA API error"); }
@@ -225,9 +258,8 @@ export default function App() {
     setIsProcessing(false);
 
     if (combiResults.length > 0) {
-       // Filtram duplicatele (uneori OFF intoarce acelasi ID)
        const uniqueResults = combiResults.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-       setSearchResults(uniqueResults.slice(0, 7)); // Aratam primele 7
+       setSearchResults(uniqueResults.slice(0, 7)); 
        setOcrStatus("✅ Alege un produs din listă:");
        Quagga.stop();
     } else {
@@ -246,24 +278,76 @@ export default function App() {
     setOcrStatus("✅ PRODUS SELECTAT!");
   };
 
-  const adaugaInFrigider = () => {
+  // ==========================================
+  // --- FUNCTII FIREBASE (SCRIERE/MODIFICARE) ---
+  // ==========================================
+  const adaugaInFrigider = async () => {
     if (!scanResult) return;
     const finalCantitate = Number(tempCantitate) || 1;
     const finalGramaj = Number(tempGramaj) || 100;
     
-    setFridge(prev => {
-      const existingItem = prev.find(p => p.id === scanResult.id);
-      if (existingItem) return prev.map(p => p.id === scanResult.id ? { ...p, cantitate: p.cantitate + finalCantitate, expirare: tempExpirare || p.expirare, gramajTotal: finalGramaj } : p);
-      return [...prev, { ...scanResult, cantitate: finalCantitate, expirare: tempExpirare, gramajTotal: finalGramaj, procentRamas: 100 }];
-    });
+    const existingItem = fridge.find(p => p.id === scanResult.id);
+    const docRef = doc(db, "produse", scanResult.id.toString());
+    
+    try {
+      if (existingItem) {
+        // Produsul exista deja -> ii facem Update in Cloud
+        await updateDoc(docRef, {
+          cantitate: existingItem.cantitate + finalCantitate,
+          expirare: tempExpirare || existingItem.expirare,
+          gramajTotal: finalGramaj
+        });
+      } else {
+        // Produs nou -> il scriem in Cloud
+        await setDoc(docRef, {
+          ...scanResult,
+          cantitate: finalCantitate,
+          expirare: tempExpirare,
+          gramajTotal: finalGramaj,
+          procentRamas: 100
+        });
+      }
+    } catch (e) {
+      console.error("Eroare Firebase:", e);
+    }
+
     setScanResult(null); setIsProcessing(false); setLiveCode(""); setSearchQuery(""); setSearchResults([]); setActiveTab('fridge');
   };
 
-  const toggleExpand = (id: string) => setExpandedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  const modificaCantitate = (id: string, delta: number) => setFridge(prev => prev.map(p => p.id === id ? { ...p, cantitate: Math.max(0, p.cantitate + delta) } : p).filter(p => p.cantitate > 0));
-  const actualizeazaProcentRamas = (id: string, procent: number) => setFridge(prev => prev.map(p => p.id === id ? { ...p, procentRamas: procent } : p));
-  
-  const consumaProdus = (item: Product) => {
+  const modificaCantitate = async (id: string, delta: number) => {
+    const item = fridge.find(p => p.id === id);
+    if (!item) return;
+
+    const nouaCantitate = item.cantitate + delta;
+    const docRef = doc(db, "produse", id);
+
+    try {
+      if (nouaCantitate <= 0) {
+        await deleteDoc(docRef); // Daca ajunge la 0, il stergem din Cloud
+      } else {
+        await updateDoc(docRef, { cantitate: nouaCantitate });
+      }
+    } catch (e) {
+      console.error("Eroare update cantitate:", e);
+    }
+  };
+
+  const actualizeazaProcentRamas = async (id: string, procent: number) => {
+    try {
+      const docRef = doc(db, "produse", id);
+      await updateDoc(docRef, { procentRamas: procent });
+    } catch (e) {
+      console.error("Eroare update procent:", e);
+    }
+  };
+
+  const stergeProdusFinal = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "produse", id));
+    } catch(e) { console.error("Eroare stergere:", e); }
+  }
+
+  const consumaProdus = async (item: Product) => {
     const valPortie = portiiDiet[item.id];
     const grameConsumate = (valPortie !== undefined && valPortie !== '') ? Number(valPortie) : 100;
     
@@ -271,19 +355,30 @@ export default function App() {
     setDietKcalConsumed(prev => Math.round(prev + caloriiDeAdaugat));
     const procentConsumat = (grameConsumate / item.gramajTotal) * 100;
 
-    setFridge(prev => prev.map(p => {
-      if (p.id === item.id) {
-        let nouProcent = p.procentRamas - procentConsumat;
-        let nouaCantitate = p.cantitate;
-        if (nouProcent <= 0) {
-           nouaCantitate -= 1;
-           nouProcent = nouaCantitate > 0 ? 100 : 0; 
-        }
-        return { ...p, procentRamas: Math.max(0, Math.round(nouProcent)), cantitate: Math.max(0, nouaCantitate) };
+    let nouProcent = item.procentRamas - procentConsumat;
+    let nouaCantitate = item.cantitate;
+
+    if (nouProcent <= 0) {
+       nouaCantitate -= 1;
+       nouProcent = nouaCantitate > 0 ? 100 : 0; 
+    }
+
+    const docRef = doc(db, "produse", item.id);
+    try {
+      if (nouaCantitate <= 0) {
+        await deleteDoc(docRef);
+      } else {
+        await updateDoc(docRef, { 
+          procentRamas: Math.max(0, Math.round(nouProcent)), 
+          cantitate: nouaCantitate 
+        });
       }
-      return p;
-    }).filter(p => p.cantitate > 0));
+    } catch (e) {
+      console.error("Eroare consum produs Firebase:", e);
+    }
   };
+
+  const toggleExpand = (id: string) => setExpandedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
 
   const checkAlergeniPericol = (sursaText: string) => alergeniSelectati.filter(a => sursaText.includes(a.toLowerCase().replace('ă', 'a').replace('ș', 's').replace('ț', 't')));
 
@@ -373,7 +468,7 @@ export default function App() {
              </div>
              {expiringItems.length === 0 ? <p>Nu ai alerte.</p> : expiringItems.map(item => (
                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', background: '#fff3e0', padding: '12px', borderRadius: '12px' }}>
-                 <img src={item.imagine} width="40" height="40" style={{ borderRadius: '8px', objectFit: 'cover' }} />
+                 <img src={item.imagine} width="40" height="40" style={{ borderRadius: '8px', objectFit: 'contain' }} />
                  <div><strong style={{ fontSize: '13px' }}>{item.nume}</strong><br/><small style={{ color: '#d32f2f', fontWeight: 'bold' }}>Data: {new Date(item.expirare).toLocaleDateString('ro-RO')}</small></div>
                </div>
              ))}
@@ -406,33 +501,18 @@ export default function App() {
             )}
 
             <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '15px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
-              
               <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                <input
-                  type="text"
-                  placeholder="Caută (ex: mere, ceapă, lapte)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && searchProductManual(searchQuery)}
-                  className="compact-input"
-                  style={{ background: '#f8f9fa' }}
-                />
-                <button onClick={() => searchProductManual(searchQuery)} className="action-button" style={{ flex: 'none', width: '50px', padding: '0', background: '#1b5e20', color: 'white' }}>
-                  <Search size={20} />
-                </button>
+                <input type="text" placeholder="Caută (ex: mere, ceapă, lapte)..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchProductManual(searchQuery)} className="compact-input" style={{ background: '#f8f9fa' }} />
+                <button onClick={() => searchProductManual(searchQuery)} className="action-button" style={{ flex: 'none', width: '50px', padding: '0', background: '#1b5e20', color: 'white' }}><Search size={20} /></button>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#1b5e20' }}>
                 <Zap size={20} className={isProcessing ? "animate-pulse" : ""} />
                 <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{ocrStatus}</span>
               </div>
-              
-              {liveCode && searchResults.length === 0 && (
-                <h1 style={{ letterSpacing: '4px', color: '#333', margin: '10px 0 0 0', fontSize: '1.5rem' }}>{liveCode}</h1>
-              )}
+              {liveCode && searchResults.length === 0 && <h1 style={{ letterSpacing: '4px', color: '#333', margin: '10px 0 0 0', fontSize: '1.5rem' }}>{liveCode}</h1>}
             </div>
 
-            {/* LISTA REZULTATE CAUTARE GLOBALA */}
             {searchResults.length > 0 && (
               <div className="search-results-list" style={{ marginTop: '15px', background: 'white', borderRadius: '15px', padding: '5px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '2px solid #f0f0f0' }}>
@@ -446,9 +526,7 @@ export default function App() {
                       <strong style={{ fontSize: '14px', color: '#333', display: 'block', lineHeight: '1.2' }}>{item.nume}</strong>
                       <span style={{ fontSize: '11px', color: '#888' }}>{item.brand} • {item.kcal} kcal/100g</span>
                     </div>
-                    <div style={{ background: '#f1f8e9', color: '#1b5e20', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' }}>
-                      Alege
-                    </div>
+                    <div style={{ background: '#f1f8e9', color: '#1b5e20', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' }}>Alege</div>
                   </div>
                 ))}
               </div>
@@ -493,7 +571,7 @@ export default function App() {
             </div>
 
             <button onClick={adaugaInFrigider} style={{ width: '100%', background: '#1b5e20', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(27,94,32,0.2)' }}>
-              ADAUGĂ ÎN FRIGIDER
+              ADAUGĂ ÎN CLOUD (FRIGIDER)
             </button>
             <button onClick={() => { setScanResult(null); setIsProcessing(false); setLiveCode(""); lastScannedCode.current = ""; startScanner(); }} style={{ width: '100%', border: 'none', background: 'none', color: '#888', marginTop: '10px', padding: '10px', cursor: 'pointer', fontSize: '13px' }}>
               Anulează
@@ -505,7 +583,10 @@ export default function App() {
         {activeTab === 'fridge' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h3 style={{ margin: 0, paddingLeft: '5px', fontSize: '1.2rem' }}>❄️ Frigiderul tău</h3>
+              <h3 style={{ margin: 0, paddingLeft: '5px', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ❄️ Frigider Sincronizat
+                <span style={{width: '8px', height: '8px', background: '#4CAF50', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 5px #4CAF50'}}></span>
+              </h3>
               {expiringItems.length > 0 && (
                 <button onClick={() => setShowExpiringModal(true)} style={{ background: '#ff9800', color: 'white', border: 'none', borderRadius: '8px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
                   <AlertCircle size={14} /> {expiringItems.length} Alerte
@@ -522,8 +603,13 @@ export default function App() {
                 const isExpanded = expandedItems.includes(item.id);
 
                 return (
-                  <div key={item.id} className="card" style={{ background: hasAlergiePericol ? '#fff5f5' : 'white', border: hasAlergiePericol ? '2px solid #d32f2f' : '1px solid #eee', padding: '15px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <div key={item.id} className="card" style={{ background: hasAlergiePericol ? '#fff5f5' : 'white', border: hasAlergiePericol ? '2px solid #d32f2f' : '1px solid #eee', padding: '15px', position: 'relative' }}>
+                    
+                    <button onClick={() => stergeProdusFinal(item.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ffcdd2', cursor: 'pointer', padding: '5px' }}>
+                      <Trash2 size={18} />
+                    </button>
+
+                    <div style={{ display: 'flex', alignItems: 'center', paddingRight: '25px' }}>
                       <img src={item.imagine} width="50" height="50" style={{ borderRadius: '10px', marginRight: '12px', objectFit: 'contain' }} />
                       <div style={{ flex: 1 }}>
                         <strong style={{ fontSize: '15px' }}>{item.nume}</strong><br/>
