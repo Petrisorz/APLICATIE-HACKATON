@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Quagga from '@ericblade/quagga2';
 import Tesseract from 'tesseract.js';
-import { Camera, Refrigerator, Activity, AlertTriangle, Trash2, Search, Zap, Image as ImageIcon, Plus, Minus, ChevronDown, ChevronUp, PieChart, HeartPulse, Bell, X, AlertCircle, ShoppingCart, CheckSquare, Square } from 'lucide-react';
+import { Camera, Refrigerator, Activity, AlertTriangle, Trash2, Search, Zap, Image as ImageIcon, Plus, Minus, ChevronDown, ChevronUp, PieChart, HeartPulse, Bell, X, AlertCircle, ShoppingCart, CheckSquare, Square, Utensils } from 'lucide-react';
 
 // --- CONFIGURARE FIREBASE ---
 import { initializeApp } from "firebase/app";
@@ -20,6 +20,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 // ----------------------------
+
+// --- API SPOONACULAR ---
+const SPOONACULAR_API_KEY = "3188391c43ee4d3cbc5972c4e7647f0c";
 
 interface Product {
   id: string;
@@ -92,6 +95,11 @@ export default function App() {
   const [showExpiringModal, setShowExpiringModal] = useState(false);
   const [hideGlobalAlert, setHideGlobalAlert] = useState(false);
 
+  // --- STATE-URI NOI PENTRU RETETE ---
+  const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [isFetchingRecipes, setIsFetchingRecipes] = useState(false);
+
   const videoRef = useRef<HTMLDivElement>(null);
   const lastScannedCode = useRef("");
 
@@ -118,6 +126,43 @@ export default function App() {
 
     return () => { unsubFridge(); unsubShop(); };
   }, []);
+
+  // ==========================================
+  // --- FETCH RETETE SPOONACULAR ---
+  // ==========================================
+  const fetchRecipes = async () => {
+    if (fridge.length === 0) {
+      alert("Nu ai alimente în frigider!");
+      return;
+    }
+    
+    setIsFetchingRecipes(true);
+    try {
+      // Scoatem doar prima parte a numelui din frigider ca sa inteleaga API-ul mai usor
+      const rawIngredients = fridge.map(item => item.nume.split(' ')[0]).join(', ');
+      
+      // Il trecem printr-un translator simplu pt rezultate bune (Spoonacular iubeste engleza)
+      let enIngredients = rawIngredients;
+      try {
+        const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(rawIngredients)}&langpair=ro|en`);
+        const transData = await transRes.json();
+        if (transData?.responseData?.translatedText) {
+          enIngredients = transData.responseData.translatedText;
+        }
+      } catch (e) {
+        console.warn("Eroare la traducere. Incerc cu termenii originali.");
+      }
+
+      // Ranking=2 este cheia: optimizeaza retetele pentru a minimiza ingredientele lipsa
+      const res = await fetch(`https://api.spoonacular.com/recipes/findByIngredients?ingredients=${encodeURIComponent(enIngredients)}&number=8&ranking=2&ignorePantry=true&apiKey=${SPOONACULAR_API_KEY}`);
+      const data = await res.json();
+      setRecipes(data);
+    } catch (error) {
+      alert("Eroare la conexiunea cu API-ul de rețete.");
+    } finally {
+      setIsFetchingRecipes(false);
+    }
+  };
 
   // ==========================================
   // --- SCANNER QUAGGA ---
@@ -308,7 +353,7 @@ export default function App() {
   };
 
   // ==========================================
-  // --- FUNCTII FIREBASE SHOP (NOU) ---
+  // --- FUNCTII FIREBASE SHOP ---
   // ==========================================
   const addShopItem = async () => {
     if (!shopInput.trim()) return;
@@ -346,11 +391,51 @@ export default function App() {
     <div className="app-container">
       
       <header style={{ background: '#1b5e20', color: 'white', padding: '15px 20px', textAlign: 'center', borderRadius: '0 0 20px 20px', position: 'relative', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+        
+        {/* NOU: BUTON PENTRU MENIU RETETE (STANGA SUS) */}
+        <button onClick={() => setIsRecipeModalOpen(true)} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', background: 'white', color: '#ff9800', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer' }}>
+          <Utensils size={20} />
+        </button>
+
         <h2 style={{ margin: 0, fontSize: 'clamp(1.1rem, 3vw, 1.4rem)' }}>KitchenGuard AI 🥗</h2>
+        
         <button onClick={() => setIsMonitorOpen(true)} style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'white', color: '#d32f2f', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer' }}>
           <HeartPulse size={20} />
         </button>
       </header>
+
+      {/* --- NOU: OVERLAY MODAL PENTRU RETETE --- */}
+      {isRecipeModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '450px', padding: '20px' }}>
+            <button onClick={() => setIsRecipeModalOpen(false)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={24} /></button>
+            <h3 style={{ marginTop: 0, color: '#333', display: 'flex', alignItems: 'center', gap: '8px' }}><Utensils size={22} color="#ff9800"/> Rețete cu ce ai</h3>
+            <p style={{ fontSize: '13px', color: '#666', marginTop: '-10px', marginBottom: '20px' }}>Gătim inteligent cu produsele din frigider.</p>
+            
+            <button onClick={fetchRecipes} disabled={isFetchingRecipes} style={{ width: '100%', background: '#ff9800', color: 'white', border: 'none', padding: '12px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '15px', boxShadow: '0 4px 10px rgba(255, 152, 0, 0.2)' }}>
+              {isFetchingRecipes ? "⏳ Analizez ingredientele..." : "🍳 GENEREAZĂ REȚETE"}
+            </button>
+
+            <div style={{ maxHeight: '55vh', overflowY: 'auto', paddingRight: '5px' }}>
+              {recipes.length === 0 && !isFetchingRecipes && (
+                <p style={{textAlign: 'center', color: '#888', fontSize: '13px', marginTop: '30px'}}>Apasă butonul de mai sus pentru a genera idei de mese!</p>
+              )}
+              {recipes.map((r: any) => (
+                <div key={r.id} style={{ display: 'flex', gap: '12px', background: '#f9f9f9', padding: '10px', borderRadius: '12px', marginBottom: '10px', border: '1px solid #eee' }}>
+                  <img src={r.image} alt={r.title} style={{ width: '75px', height: '75px', borderRadius: '10px', objectFit: 'cover' }} />
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ fontSize: '14px', color: '#333', display: 'block', lineHeight: '1.2', marginBottom: '6px' }}>{r.title}</strong>
+                    <div style={{ fontSize: '11px', color: '#1b5e20', fontWeight: 'bold' }}>✅ Ai: {r.usedIngredientCount} ingrediente</div>
+                    {r.missedIngredientCount > 0 && (
+                      <div style={{ fontSize: '11px', color: '#d32f2f', fontWeight: 'bold' }}>❌ Îți lipsesc: {r.missedIngredientCount} ingrediente</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {expiringItems.length > 0 && !hideGlobalAlert && (
         <div style={{ background: '#ff9800', color: 'white', padding: '10px 15px', margin: '15px', borderRadius: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
