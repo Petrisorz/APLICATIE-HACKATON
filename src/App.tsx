@@ -45,9 +45,7 @@ const ALERGENI_COMUNI = ['Lapte', 'Gluten', 'Ouă', 'Alune', 'Nuci', 'Soia', 'Pe
 export default function App() {
   const [activeTab, setActiveTab] = useState<'scan' | 'fridge' | 'health' | 'diet'>('scan');
   
-  // Aici vor veni datele în timp real din Firebase
   const [fridge, setFridge] = useState<Product[]>([]);
-  
   const [scanResult, setScanResult] = useState<Product | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [liveCode, setLiveCode] = useState("");
@@ -79,15 +77,16 @@ export default function App() {
   // --- SINCRONIZARE FIREBASE (LIVE) ---
   // ==========================================
   useEffect(() => {
-    // Această funcție citește și actualizează "fridge" de fiecare dată când cineva schimbă ceva în baza de date
     const unsubscribe = onSnapshot(collection(db, "produse"), (snapshot) => {
       const items: Product[] = [];
       snapshot.forEach((doc) => {
         items.push(doc.data() as Product);
       });
-      // Sortăm produsele alfabetic ca să nu sară pe ecran
       items.sort((a, b) => a.nume.localeCompare(b.nume));
       setFridge(items);
+    }, (error) => {
+      // DACA PICA CONEXIUNEA SAU REGULILE, ARATA PE ECRAN!
+      alert("⚠️ Eroare citire Firebase: " + error.message);
     });
 
     return () => unsubscribe();
@@ -189,7 +188,6 @@ export default function App() {
 
     let combiResults: Product[] = [];
 
-    // OpenFoodFacts (Ambalate)
     try {
       const offRes = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(qLower)}&search_simple=1&action=process&json=1&page_size=4`);
       const offData = await offRes.json();
@@ -216,7 +214,6 @@ export default function App() {
       }
     } catch(e) { console.warn("OFF API error"); }
 
-    // USDA (Alimente Naturale) + Translator
     try {
       let enQuery = qLower;
       const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(qLower)}&langpair=ro|en`);
@@ -287,18 +284,19 @@ export default function App() {
     const finalGramaj = Number(tempGramaj) || 100;
     
     const existingItem = fridge.find(p => p.id === scanResult.id);
-    const docRef = doc(db, "produse", scanResult.id.toString());
+    
+    // IMPORTANT: Firebase nu accepta caractere dubioase in ID-uri (gen slash-uri)
+    const safeId = scanResult.id.toString().replace(/\//g, '-');
+    const docRef = doc(db, "produse", safeId);
     
     try {
       if (existingItem) {
-        // Produsul exista deja -> ii facem Update in Cloud
         await updateDoc(docRef, {
           cantitate: existingItem.cantitate + finalCantitate,
           expirare: tempExpirare || existingItem.expirare,
           gramajTotal: finalGramaj
         });
       } else {
-        // Produs nou -> il scriem in Cloud
         await setDoc(docRef, {
           ...scanResult,
           cantitate: finalCantitate,
@@ -307,8 +305,9 @@ export default function App() {
           procentRamas: 100
         });
       }
-    } catch (e) {
-      console.error("Eroare Firebase:", e);
+    } catch (e: any) {
+      alert("⚠️ Eroare Firebase la salvare: " + e.message); // AFISAM EROAREA SA O VEZI!
+      return; // Oprim fluxul daca a dat eroare
     }
 
     setScanResult(null); setIsProcessing(false); setLiveCode(""); setSearchQuery(""); setSearchResults([]); setActiveTab('fridge');
@@ -319,32 +318,35 @@ export default function App() {
     if (!item) return;
 
     const nouaCantitate = item.cantitate + delta;
-    const docRef = doc(db, "produse", id);
+    const safeId = id.toString().replace(/\//g, '-');
+    const docRef = doc(db, "produse", safeId);
 
     try {
       if (nouaCantitate <= 0) {
-        await deleteDoc(docRef); // Daca ajunge la 0, il stergem din Cloud
+        await deleteDoc(docRef);
       } else {
         await updateDoc(docRef, { cantitate: nouaCantitate });
       }
-    } catch (e) {
-      console.error("Eroare update cantitate:", e);
+    } catch (e: any) {
+      alert("⚠️ Eroare Firebase: " + e.message);
     }
   };
 
   const actualizeazaProcentRamas = async (id: string, procent: number) => {
     try {
-      const docRef = doc(db, "produse", id);
+      const safeId = id.toString().replace(/\//g, '-');
+      const docRef = doc(db, "produse", safeId);
       await updateDoc(docRef, { procentRamas: procent });
-    } catch (e) {
-      console.error("Eroare update procent:", e);
+    } catch (e: any) {
+      alert("⚠️ Eroare Firebase: " + e.message);
     }
   };
 
   const stergeProdusFinal = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "produse", id));
-    } catch(e) { console.error("Eroare stergere:", e); }
+      const safeId = id.toString().replace(/\//g, '-');
+      await deleteDoc(doc(db, "produse", safeId));
+    } catch(e: any) { alert("⚠️ Eroare Firebase: " + e.message); }
   }
 
   const consumaProdus = async (item: Product) => {
@@ -363,7 +365,8 @@ export default function App() {
        nouProcent = nouaCantitate > 0 ? 100 : 0; 
     }
 
-    const docRef = doc(db, "produse", item.id);
+    const safeId = item.id.toString().replace(/\//g, '-');
+    const docRef = doc(db, "produse", safeId);
     try {
       if (nouaCantitate <= 0) {
         await deleteDoc(docRef);
@@ -373,8 +376,8 @@ export default function App() {
           cantitate: nouaCantitate 
         });
       }
-    } catch (e) {
-      console.error("Eroare consum produs Firebase:", e);
+    } catch (e: any) {
+      alert("⚠️ Eroare Firebase: " + e.message);
     }
   };
 
